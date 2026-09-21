@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The harness needs to be an app, not a bare binary: the Android backend
+     wants a Context to reach BluetoothManager, and the scan and connect
+     permissions are runtime grants that only an app can hold. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="io.webbluetooth.harness">
+
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
+
+    <!-- Android 12 split the old BLUETOOTH/BLUETOOTH_ADMIN pair into these.
+         `neverForLocation` says the scan is not being used to infer position,
+         which is what lets it run without a location grant. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+                     android:usesPermissionFlags="neverForLocation"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"/>
+
+    <application android:label="webbluetooth harness">
+        <activity android:name=".Harness" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

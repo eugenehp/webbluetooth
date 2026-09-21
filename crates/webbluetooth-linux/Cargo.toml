@@ -1,0 +1,38 @@
+[package]
+name        = "webbluetooth-linux"
+description = "Linux BLE from pure Rust — D-Bus and the kernel's Bluetooth sockets, spoken directly"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+homepage.workspace   = true
+documentation = "https://docs.rs/webbluetooth-linux"
+rust-version.workspace = true
+authors.workspace    = true
+keywords    = ["bluetooth", "ble", "bluez", "dbus", "linux"]
+categories  = ["external-ffi-bindings", "hardware-support", "os::linux-apis"]
+readme      = "README.md"
+
+
+# docs.rs builds on x86_64 Linux, which is the wrong platform for most of this
+# workspace: a crate that compiles to nothing off its own platform documents
+# nothing. Each one names the target its documentation is worth reading on.
+[package.metadata.docs.rs]
+default-target = "x86_64-unknown-linux-gnu"
+
+[lib]
+name = "webbluetooth_linux"
+
+# No dependencies. D-Bus is a wire protocol over a Unix socket, and everything
+# below it is a raw syscall.
+[dependencies]
+webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.1" }
+futures-core      = "0.3"
+futures-channel   = { version = "0.3", features = ["std"] }
+futures-util      = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+
+[dev-dependencies]
+futures-executor = "0.3"
+
+[lints]
+workspace = true

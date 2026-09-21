@@ -1,0 +1,50 @@
+[package]
+name        = "webbluetooth-core"
+description = "The portable model behind webbluetooth, and the contract its backends meet"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+homepage.workspace   = true
+documentation = "https://docs.rs/webbluetooth-core"
+rust-version.workspace = true
+authors.workspace    = true
+keywords    = ["bluetooth", "ble", "gatt", "web-bluetooth"]
+categories  = ["hardware-support", "api-bindings", "asynchronous"]
+readme      = "README.md"
+
+
+# Repository-wide checks: they read the six backend crates as source, which a
+# published archive does not contain.
+exclude = ["tests/backend_surface.rs", "tests/peripheral_surface.rs", "tests/common"]
+
+# docs.rs builds on x86_64 Linux, which is the wrong platform for most of this
+# workspace: a crate that compiles to nothing off its own platform documents
+# nothing. Each one names the target its documentation is worth reading on.
+[package.metadata.docs.rs]
+default-target = "x86_64-unknown-linux-gnu"
+
+[dependencies]
+futures-core     = "0.3"
+futures-channel  = { version = "0.3", features = ["std"] }
+futures-util     = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+# Feature `uuid` only. `default-features = false` because nothing here needs
+# random generation or formatting helpers — just the 128 bits.
+uuid             = { version = "1", default-features = false, optional = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+futures-executor = "0.3"
+
+[features]
+default = []
+## Mirrors `webbluetooth`'s feature of the same name, so the portable layer
+## agrees with the backend about which Linux transport is in use.
+linux-hci = []
+## Mirrors `webbluetooth`'s feature of the same name: builds `TerminalChooser`.
+terminal-chooser = []
+## Mirrors `webbluetooth`'s feature of the same name: conversions to and from
+## the `uuid` crate.
+uuid = ["dep:uuid"]

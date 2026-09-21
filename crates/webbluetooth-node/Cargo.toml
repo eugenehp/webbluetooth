@@ -1,0 +1,41 @@
+[package]
+name        = "webbluetooth-node"
+description = "Web Bluetooth for Node.js and Deno — Node-API spoken directly, no bindgen"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+homepage.workspace   = true
+documentation = "https://docs.rs/webbluetooth-node"
+rust-version.workspace = true
+authors.workspace    = true
+keywords    = ["bluetooth", "ble", "nodejs", "deno", "napi"]
+categories  = ["external-ffi-bindings", "hardware-support", "api-bindings"]
+readme      = "README.md"
+
+
+# docs.rs builds on x86_64 Linux, which is the wrong platform for most of this
+# workspace: a crate that compiles to nothing off its own platform documents
+# nothing. Each one names the target its documentation is worth reading on.
+[package.metadata.docs.rs]
+default-target = "x86_64-unknown-linux-gnu"
+
+[lib]
+# `cdylib` is what a Node addon is: a shared library the runtime dlopen()s and
+# calls one exported symbol in. The `rlib` is so the tests can reach inside.
+crate-type = ["cdylib", "rlib"]
+name       = "webbluetooth_node"
+
+# No binding crate: not `neon`, not `napi-rs`. Node-API is a stable C ABI —
+# that is the whole point of it — so it is declared by hand, the same way this
+# workspace declares JNI, the Objective-C runtime and COM.
+#
+# `futures-util` is the one outside crate here, for `StreamExt::next` on the
+# notification stream. It is not a new dependency: the core crate already uses
+# it and returns a `Stream`, so it is in the tree either way.
+[dependencies]
+webbluetooth = { path = "../webbluetooth", version = "0.0.1" }
+futures-util = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+
+[lints]
+workspace = true

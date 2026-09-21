@@ -1,0 +1,38 @@
+[package]
+name        = "webbluetooth-windows"
+description = "Windows BLE from pure Rust — WinRT reached through hand-written COM, no bindings crate"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+homepage.workspace   = true
+documentation = "https://docs.rs/webbluetooth-windows"
+rust-version.workspace = true
+authors.workspace    = true
+keywords    = ["bluetooth", "ble", "winrt", "com", "windows"]
+categories  = ["external-ffi-bindings", "hardware-support", "os::windows-apis"]
+readme      = "README.md"
+
+
+# docs.rs builds on x86_64 Linux, which is the wrong platform for most of this
+# workspace: a crate that compiles to nothing off its own platform documents
+# nothing. Each one names the target its documentation is worth reading on.
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"
+
+[lib]
+name = "webbluetooth_windows"
+
+# No dependencies. COM is a calling convention and WinRT is a handful of
+# exports from combase.dll.
+[dependencies]
+webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.1" }
+futures-core      = "0.3"
+futures-channel   = { version = "0.3", features = ["std"] }
+futures-util      = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+
+[dev-dependencies]
+futures-executor = "0.3"
+
+[lints]
+workspace = true

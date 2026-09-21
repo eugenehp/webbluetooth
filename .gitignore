@@ -1,0 +1,27 @@
+# Everything the build and every script in `scripts/` produces lands here:
+# `cargo`'s own output, plus `target/ios` (a signed .app), `target/qemu`
+# (a 13 GB Debian image), `target/android-art`, `target/android-apk`,
+# `target/node`, and `target/package*` (the release archives and the
+# temporary registry they are verified against).
+/target
+
+# Editor and tooling droppings that happen to sit at the repository root.
+/build
+**/*.rs.bk
+.DS_Store
+# The other half of .DS_Store: resource forks, which appear whenever part of
+# this tree is copied to a filesystem that cannot store them inline.
+._*
+
+# Signing material, which `scripts/ios.sh` needs and nothing here should ever
+# contain. It copies a profile into `target/ios/` — already covered above —
+# but this is the one class of mistake that `git rm --cached` does not undo,
+# because a leaked identity is leaked the moment it is pushed.
+*.mobileprovision
+*.p12
+*.certSigningRequest
+
+# `Cargo.lock` is deliberately **not** ignored. This workspace ships binaries
+# and examples, and current cargo guidance is to commit the lockfile even for
+# libraries: it is what makes `./scripts/check.sh` and a release build
+# reproduce the dependency versions they were verified against.

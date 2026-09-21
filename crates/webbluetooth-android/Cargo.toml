@@ -1,0 +1,42 @@
+[package]
+name        = "webbluetooth-android"
+description = "Android BLE from pure Rust — JNI spoken directly, callback classes generated at runtime"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+homepage.workspace   = true
+documentation = "https://docs.rs/webbluetooth-android"
+rust-version.workspace = true
+authors.workspace    = true
+keywords    = ["bluetooth", "ble", "android", "jni", "dex"]
+categories  = ["external-ffi-bindings", "hardware-support", "os"]
+readme      = "README.md"
+
+
+# docs.rs builds on x86_64 Linux, which is the wrong platform for most of this
+# workspace: a crate that compiles to nothing off its own platform documents
+# nothing. Each one names the target its documentation is worth reading on.
+[package.metadata.docs.rs]
+default-target = "aarch64-linux-android"
+
+[lib]
+name = "webbluetooth_android"
+
+# No dependencies. JNI is a C ABI and DEX is a file format.
+[dependencies]
+webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.1" }
+futures-core      = "0.3"
+futures-channel   = { version = "0.3", features = ["std"] }
+futures-util      = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+
+[dev-dependencies]
+futures-executor = "0.3"
+
+[lints]
+workspace = true
+
+# A shared library, because the point is for ART to `System.load` it.
+[[example]]
+name       = "art_probe"
+crate-type = ["cdylib"]

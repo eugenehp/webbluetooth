@@ -1,0 +1,20 @@
+# Nothing here embeds Info.plist any more — `crates/webbluetooth/build.rs`
+# does, and that is deliberate rather than tidying.
+#
+# This file used to carry:
+#
+#   [target.'cfg(target_os = "macos")']
+#   rustflags = ["-C", "link-arg=-Wl,-sectcreate,__TEXT,__info_plist,Info.plist"]
+#
+# A cargo config cannot express a path relative to itself, only one relative to
+# wherever cargo was invoked — and it is *discovered* by walking up from that
+# same directory. So the flag was applied when a build happened to start inside
+# this tree and silently absent when it did not: `cargo build --manifest-path`
+# from elsewhere produced a binary with no Info.plist section, which shows up
+# much later as "Bluetooth unauthorized" with nothing pointing back here. It
+# also broke `cargo package`, which verifies each archive by compiling it in a
+# directory that is not this one, and so could not find the file at all.
+#
+# A build script has an absolute `CARGO_MANIFEST_DIR` and travels with the
+# package, so it has neither problem. If you are about to add a rustflag here
+# that names a path, that is the reason not to.

@@ -1,0 +1,36 @@
+[package]
+name        = "webbluetooth-wasm"
+description = "Web Bluetooth from Rust in the browser — the host ABI, spoken directly"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+homepage.workspace   = true
+documentation = "https://docs.rs/webbluetooth-wasm"
+rust-version.workspace = true
+authors.workspace    = true
+keywords    = ["bluetooth", "ble", "wasm", "webassembly", "browser"]
+categories  = ["wasm", "hardware-support", "api-bindings"]
+readme      = "README.md"
+
+
+# docs.rs builds on x86_64 Linux, which is the wrong platform for most of this
+# workspace: a crate that compiles to nothing off its own platform documents
+# nothing. Each one names the target its documentation is worth reading on.
+[package.metadata.docs.rs]
+default-target = "wasm32-unknown-unknown"
+
+[lib]
+name = "webbluetooth_wasm"
+
+# No dependencies, including no wasm-bindgen. The browser's side of the call is
+# a hand-written shim in js/webbluetooth.js; everything here is a plain
+# `extern "C"` import or export across the WebAssembly boundary.
+[dependencies]
+webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.1" }
+
+[dev-dependencies]
+futures-executor = "0.3"
+
+[lints]
+workspace = true

@@ -1,0 +1,41 @@
+[package]
+name        = "webbluetooth-apple"
+description = "CoreBluetooth from pure Rust — delegate classes synthesised at runtime, no Swift source"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+homepage.workspace   = true
+documentation = "https://docs.rs/webbluetooth-apple"
+rust-version.workspace = true
+authors.workspace    = true
+keywords    = ["bluetooth", "ble", "corebluetooth", "objc", "macos"]
+categories  = ["external-ffi-bindings", "hardware-support", "os::macos-apis"]
+readme      = "README.md"
+
+
+# docs.rs builds on x86_64 Linux, which is the wrong platform for most of this
+# workspace: a crate that compiles to nothing off its own platform documents
+# nothing. Each one names the target its documentation is worth reading on.
+[package.metadata.docs.rs]
+default-target = "aarch64-apple-darwin"
+targets = ["aarch64-apple-darwin", "aarch64-apple-ios"]
+
+[lib]
+name = "webbluetooth_apple"
+
+# The FFI needs nothing but libSystem — the Objective-C runtime and libdispatch
+# are both in it. `backend` is the other half of this crate: the adapter that
+# turns CoreBluetooth into the portable model, which is what the two futures
+# crates and `webbluetooth-core` are for.
+[dependencies]
+webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.1" }
+futures-core      = "0.3"
+futures-channel   = { version = "0.3", features = ["std"] }
+futures-util      = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+
+[dev-dependencies]
+futures-executor = "0.3"
+
+[lints]
+workspace = true

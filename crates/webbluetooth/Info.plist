@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>dev.webbluetooth.examples</string>
+    <key>CFBundleName</key>
+    <string>webbluetooth examples</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <!-- Without this key the process is denied Bluetooth and never prompted.
+         The string is what the system shows the user in the prompt. -->
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>These examples talk to Bluetooth Low Energy peripherals.</string>
+</dict>
+</plist>

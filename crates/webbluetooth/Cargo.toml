@@ -1,0 +1,87 @@
+[package]
+name        = "webbluetooth"
+description = "The Web Bluetooth API in Rust — Apple platforms, Linux, Android, Windows and the browser"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+homepage.workspace   = true
+documentation = "https://docs.rs/webbluetooth"
+rust-version.workspace = true
+authors.workspace    = true
+keywords    = ["bluetooth", "ble", "gatt", "web-bluetooth", "macos"]
+categories  = ["hardware-support", "api-bindings", "asynchronous", "os"]
+readme      = "README.md"
+
+
+# A repository-wide check: it reads `webbluetooth-core`'s vendored copy of the
+# specification's IDL, which is in another package. Nothing to run from a
+# published archive.
+exclude = ["tests/web_bluetooth_surface.rs"]
+
+# docs.rs builds on x86_64 Linux, which is the wrong platform for most of this
+# workspace: a crate that compiles to nothing off its own platform documents
+# nothing. Each one names the target its documentation is worth reading on.
+[package.metadata.docs.rs]
+default-target = "x86_64-unknown-linux-gnu"
+targets = [
+    "aarch64-apple-darwin",
+    "aarch64-apple-ios",
+    "x86_64-pc-windows-msvc",
+    "aarch64-linux-android",
+    "wasm32-unknown-unknown",
+]
+features = ["terminal-chooser", "uuid"]
+
+[dependencies]
+webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.1" }
+futures-core     = "0.3"
+futures-channel  = { version = "0.3", features = ["std"] }
+futures-util     = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+
+# Exactly one backend is linked, chosen by target.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+webbluetooth-apple = { path = "../webbluetooth-apple", version = "0.0.1" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webbluetooth-linux = { path = "../webbluetooth-linux", version = "0.0.1" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+webbluetooth-windows = { path = "../webbluetooth-windows", version = "0.0.1" }
+
+[target.'cfg(target_os = "android")'.dependencies]
+webbluetooth-android = { path = "../webbluetooth-android", version = "0.0.1" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+webbluetooth-wasm = { path = "../webbluetooth-wasm", version = "0.0.1" }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+webbluetooth-linux = { path = "../webbluetooth-linux", version = "0.0.1" }
+
+[dev-dependencies]
+futures-executor = "0.3"
+
+# Built as a shared library, because an APK loads it with System.loadLibrary.
+[[example]]
+name       = "android-harness"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+## Linux: talk to the controller directly instead of going through BlueZ.
+##
+## ATT over an L2CAP socket for GATT (no privileges), a raw HCI socket for
+## scanning (needs CAP_NET_RAW). Works with no `bluetoothd` running at all —
+## but pairing and bonding live in that daemon, so encrypted characteristics
+## are unreachable without it.
+linux-hci = ["webbluetooth-core/linux-hci"]
+## A terminal device chooser: prints numbered candidates, reads a line.
+terminal-chooser = ["webbluetooth-core/terminal-chooser"]
+## Conversions between `BluetoothUuid` and the [`uuid`](https://docs.rs/uuid)
+## crate's `Uuid`, including `IntoUuid` — so a program that already holds
+## `Uuid` constants, as anything arriving from `btleplug` does, passes them
+## straight to `get_primary_service` and the rest.
+uuid = ["webbluetooth-core/uuid"]
+
+[lints]
+workspace = true
