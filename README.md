@@ -1040,9 +1040,10 @@ calls back.
 
 ## Status
 
-**0.0.2 — unreleased.** 0.0.1 is the published version; what is new since it is
-in [CHANGELOG.md](CHANGELOG.md), and the short form is Bluetooth Classic and the
-native transports around it, the `unrestricted` feature and raw advertising
+**0.0.2 — the current release.** What is new since 0.0.1 is in
+[CHANGELOG.md](CHANGELOG.md), and the short form is Bluetooth Classic and the
+native transports around it, the LE Scanning half of the standard that the
+parity oracle had been missing, the `unrestricted` feature and raw advertising
 bytes, and the two applications above.
 
 Six central-role backends and four peripheral ones, each presenting the same

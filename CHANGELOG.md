@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.0.2 — unreleased
+## 0.0.2 — 2026-09-28
 
 ### Bluetooth Classic, and the transports a browser has no word for
 
