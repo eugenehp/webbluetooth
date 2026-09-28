@@ -19,7 +19,7 @@ publish = false
 # published: `cargo package --workspace` verifies every manifest in the
 # workspace, `publish = false` or not, and refuses a dependency that has no
 # version requirement to fall back on. Every library crate here does the same.
-webbluetooth = { path = "../../crates/webbluetooth", version = "0.0.2", features = [
+webbluetooth = { path = "../../crates/webbluetooth", version = "0.0.3", features = [
     "unrestricted",
 ] }
 

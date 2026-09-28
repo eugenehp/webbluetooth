@@ -25,7 +25,7 @@ name = "webbluetooth_android"
 
 # No dependencies. JNI is a C ABI and DEX is a file format.
 [dependencies]
-webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.2" }
+webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.3" }
 futures-core      = "0.3"
 futures-channel   = { version = "0.3", features = ["std"] }
 futures-util      = { version = "0.3", default-features = false, features = ["std", "async-await"] }

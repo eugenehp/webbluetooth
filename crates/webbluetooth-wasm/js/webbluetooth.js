@@ -477,10 +477,15 @@ export async function instantiate(source, extraImports = {}) {
             const service = characteristic.service ? characteristic.service.uuid : '';
             const listener = (event) => {
               const view = event.target.value;
+              // The key, not `event.target.uuid`: the Rust side registers a
+              // subscriber under the handle key it was given (`backend.rs`,
+              // `subscribe`) and caches the value under it too, so a UUID here
+              // is a lookup that always misses — every notification decoded
+              // and then dropped.
               emit(EVENTS.CHARACTERISTIC_VALUE, new Writer()
                 .str(id)
                 .str(service)
-                .str(event.target.uuid)
+                .str(key)
                 .bytes(new Uint8Array(view.buffer))
                 .finish());
             };

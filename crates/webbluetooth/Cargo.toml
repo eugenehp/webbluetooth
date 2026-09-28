@@ -34,29 +34,29 @@ targets = [
 features = ["terminal-chooser", "uuid"]
 
 [dependencies]
-webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.2" }
+webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.3" }
 futures-core     = "0.3"
 futures-channel  = { version = "0.3", features = ["std"] }
 futures-util     = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 
 # Exactly one backend is linked, chosen by target.
 [target.'cfg(target_vendor = "apple")'.dependencies]
-webbluetooth-apple = { path = "../webbluetooth-apple", version = "0.0.2" }
+webbluetooth-apple = { path = "../webbluetooth-apple", version = "0.0.3" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-webbluetooth-linux = { path = "../webbluetooth-linux", version = "0.0.2" }
+webbluetooth-linux = { path = "../webbluetooth-linux", version = "0.0.3" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-webbluetooth-windows = { path = "../webbluetooth-windows", version = "0.0.2" }
+webbluetooth-windows = { path = "../webbluetooth-windows", version = "0.0.3" }
 
 [target.'cfg(target_os = "android")'.dependencies]
-webbluetooth-android = { path = "../webbluetooth-android", version = "0.0.2" }
+webbluetooth-android = { path = "../webbluetooth-android", version = "0.0.3" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-webbluetooth-wasm = { path = "../webbluetooth-wasm", version = "0.0.2" }
+webbluetooth-wasm = { path = "../webbluetooth-wasm", version = "0.0.3" }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-webbluetooth-linux = { path = "../webbluetooth-linux", version = "0.0.2" }
+webbluetooth-linux = { path = "../webbluetooth-linux", version = "0.0.3" }
 
 [dev-dependencies]
 futures-executor = "0.3"

@@ -26,7 +26,7 @@ name = "webbluetooth_linux"
 # No dependencies. D-Bus is a wire protocol over a Unix socket, and everything
 # below it is a raw syscall.
 [dependencies]
-webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.2" }
+webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.3" }
 futures-core      = "0.3"
 futures-channel   = { version = "0.3", features = ["std"] }
 futures-util      = { version = "0.3", default-features = false, features = ["std", "async-await"] }

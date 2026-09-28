@@ -27,7 +27,7 @@ name = "webbluetooth_wasm"
 # a hand-written shim in js/webbluetooth.js; everything here is a plain
 # `extern "C"` import or export across the WebAssembly boundary.
 [dependencies]
-webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.2" }
+webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.3" }
 
 [dev-dependencies]
 futures-executor = "0.3"

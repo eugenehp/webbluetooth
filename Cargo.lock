@@ -3771,7 +3771,7 @@ dependencies = [
 
 [[package]]
 name = "webbluetooth"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "futures-channel",
  "futures-core",
@@ -3787,7 +3787,7 @@ dependencies = [
 
 [[package]]
 name = "webbluetooth-android"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "futures-channel",
  "futures-core",
@@ -3798,7 +3798,7 @@ dependencies = [
 
 [[package]]
 name = "webbluetooth-apple"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "futures-channel",
  "futures-core",
@@ -3809,7 +3809,7 @@ dependencies = [
 
 [[package]]
 name = "webbluetooth-core"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "futures-channel",
  "futures-core",
@@ -3835,7 +3835,7 @@ dependencies = [
 
 [[package]]
 name = "webbluetooth-linux"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "futures-channel",
  "futures-core",
@@ -3846,7 +3846,7 @@ dependencies = [
 
 [[package]]
 name = "webbluetooth-node"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "futures-util",
  "webbluetooth",
@@ -3854,7 +3854,7 @@ dependencies = [
 
 [[package]]
 name = "webbluetooth-wasm"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "futures-executor",
  "webbluetooth-core",
@@ -3862,7 +3862,7 @@ dependencies = [
 
 [[package]]
 name = "webbluetooth-windows"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "futures-channel",
  "futures-core",

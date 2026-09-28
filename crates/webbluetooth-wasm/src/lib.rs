@@ -132,6 +132,41 @@ mod tests {
         }
     }
 
+    /// A notification has to name its characteristic the way the rest of the
+    /// crate names one: by handle key.
+    ///
+    /// [`backend`] registers a subscriber under the handle key it was given,
+    /// and caches the value under that key too. A shim reporting
+    /// `event.target.uuid` instead is a lookup that can never match, and the
+    /// failure is silent in the worst way — the page connects, discovers,
+    /// writes, `startNotifications()` succeeds, and not one notification ever
+    /// reaches a stream. That shipped in 0.0.2.
+    ///
+    /// Checked as a string for the same reason as the op codes above: the two
+    /// halves are separate languages with no shared header, so nothing but a
+    /// test like this holds them together.
+    #[test]
+    fn the_shim_reports_a_notification_by_handle_key() {
+        let emit = SHIM_JS
+            .split_once("EVENTS.CHARACTERISTIC_VALUE")
+            .expect("the shim should emit CHARACTERISTIC_VALUE")
+            .1
+            .split_once("finish()")
+            .expect("the emit should be terminated by finish()")
+            .0;
+
+        assert!(
+            emit.contains(".str(key)"),
+            "a notification should carry the handle key, which is what \
+             `backend::subscribe` registers under; it carries: {emit}"
+        );
+        assert!(
+            !emit.contains("event.target.uuid"),
+            "a notification is carrying a UUID where the backend expects a \
+             handle key, so every subscriber lookup will miss: {emit}"
+        );
+    }
+
     /// And every one of them must actually be handled, or the call returns a
     /// token that is never settled and the caller waits forever.
     #[test]

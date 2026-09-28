@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.0.3 — 2026-09-28
+
+### Notifications never reached a subscriber in the browser
+
+`webbluetooth-wasm` decoded every notification the page delivered and then
+dropped it. A build for `wasm32-unknown-unknown` could scan, connect, discover
+services and characteristics, write to them, and see `startNotifications()`
+succeed — and never receive a single value. Nothing reported an error, because
+nothing had gone wrong on any path that returns a result.
+
+The two halves disagreed about what names a characteristic. `backend.rs`
+registers a subscriber under the handle key it was handed — the shim's
+`"<device>/svc/N/chr/N"` path — and caches the value under that key as well:
+
+```rust
+self.notifications.lock().unwrap().entry(handle.key.clone())   // subscribe
+self.values.lock().unwrap().get(&handle.key)                   // cached_value
+```
+
+The shim's `characteristicvaluechanged` listener reported `event.target.uuid`
+instead. Every `subscribers.get_mut(&characteristic)` therefore looked a UUID
+up in a map keyed by paths and missed, on every notification; `cached_value`
+missed for the same reason. The fix is the listener sending `key`, which was
+already in scope one line above, where it is used to recover the device id.
+
+A test now holds the two halves together — `the_shim_reports_a_notification_by
+_handle_key`, alongside the op-code parity tests, which is the same class of
+failure one level down: both sides compile, both sides run, and the numbers or
+the names quietly do not line up.
+
+Found by a consumer that streams EEG over Web Bluetooth in a page, where the
+symptom was a connected headset and an empty chart.
+
 ## 0.0.2 — 2026-09-28
 
 ### Bluetooth Classic, and the transports a browser has no word for
