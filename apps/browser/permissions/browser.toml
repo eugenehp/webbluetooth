@@ -1,0 +1,124 @@
+# Application command permissions.
+#
+# Tauri checks the ACL for any command reached from a *remote* origin, whatever
+# the app declares — that check is what stops an arbitrary website calling into
+# the process. Declaring anything here also switches on ACL checking for local
+# origins, so the browser's own chrome needs its grant spelled out too.
+#
+# Three groups, because they have three different audiences. See capabilities/.
+
+[[permission]]
+identifier = "bluetooth-api"
+description = """
+The Web Bluetooth surface the injected shim calls. Granted to the webview that
+renders web content, and therefore reachable by any site the user visits —
+which is the point. Every one of these commands re-derives the caller's origin
+from the webview's current URL and refuses anything that origin has not been
+granted through the chooser; none of them can be made to touch a device the
+user did not pick.
+"""
+commands.allow = [
+  "wb_availability",
+  "wb_request_device",
+  "wb_get_devices",
+  "wb_forget_device",
+  "wb_watch_advertisements",
+  "wb_unwatch_advertisements",
+  "wb_request_le_scan",
+  "wb_stop_le_scan",
+  "wb_gatt_connect",
+  "wb_gatt_disconnect",
+  "wb_gatt_connected",
+  "wb_primary_services",
+  "wb_included_services",
+  "wb_characteristics",
+  "wb_descriptors",
+  "wb_read_characteristic",
+  "wb_write_characteristic",
+  "wb_start_notifications",
+  "wb_stop_notifications",
+  "wb_read_descriptor",
+  "wb_write_descriptor",
+  "wb_shim_hello",
+]
+
+[[permission]]
+identifier = "browser-chrome"
+description = """
+The toolbar: navigation and the per-origin permission display. Local only, and
+scoped to the `chrome` webview — web content shares a window with it, so the
+capability names the webview rather than the window.
+"""
+commands.allow = [
+  "ui_state",
+  "ui_navigate",
+  "ui_back",
+  "ui_forward",
+  "ui_reload",
+  "ui_home",
+  "ui_revoke_origin",
+  "ui_open_devtools",
+  "ui_open_permissions",
+  "ui_tab_new",
+  "ui_tab_close",
+  "ui_tab_select",
+  "ui_set_theme",
+]
+
+[[permission]]
+identifier = "device-chooser"
+description = """
+The device picker `requestDevice()` opens. Its own window, so that the page
+cannot draw over it or read what it offers.
+"""
+commands.allow = [
+  "chooser_ready",
+  "chooser_pick",
+  "chooser_cancel",
+]
+
+[[permission]]
+identifier = "scanning-prompt"
+description = """
+The prompt `requestLEScan()` opens. A scan is a standing grant on every
+advertisement in range rather than on one device, so it is asked separately
+from the chooser and in its own window.
+"""
+commands.allow = [
+  "scanprompt_ready",
+  "scanprompt_decide",
+]
+
+[[permission]]
+identifier = "permissions-manager"
+description = """
+Reading and revoking what every origin has been granted. Scoped to the
+manager's own webview: this is the one surface that can enumerate other
+sites' permissions, and web content must never reach it.
+"""
+commands.allow = [
+  "perm_list",
+  "perm_forget_device",
+  "perm_forget_origin",
+  "perm_clear_scanning",
+]
+
+[[permission]]
+identifier = "mobile-chrome"
+description = """
+What the single-webview build needs from its own page: the browser state it
+draws, the theme, and revoking a device. There is no navigation here —
+`shell_mobile.rs` serves this application's pages and nothing else — so none
+of the navigation commands exist to be granted.
+"""
+commands.allow = [
+  "ui_state",
+  "ui_set_theme",
+  "ui_revoke_origin",
+  "ui_open_permissions",
+  "ui_navigate",
+  "ui_back",
+  "ui_forward",
+  "ui_reload",
+  "ui_home",
+]

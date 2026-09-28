@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Toolbar</title>
+    <link rel="stylesheet" href="chrome.css" />
+  </head>
+  <body>
+    <div id="tabs" class="tabs" data-tauri-drag-region>
+      <div id="strip" class="strip"></div>
+      <button id="newtab" class="newtab" title="New tab (⌘T)" aria-label="New tab">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 3.5v9M3.5 8h9" />
+        </svg>
+      </button>
+    </div>
+
+    <div class="bar">
+      <button id="back" title="Back" aria-label="Back">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M10 3.5 5.5 8l4.5 4.5" />
+        </svg>
+      </button>
+      <button id="forward" title="Forward" aria-label="Forward">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M6 3.5 10.5 8 6 12.5" />
+        </svg>
+      </button>
+      <button id="reload" title="Reload" aria-label="Reload">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M13 8a5 5 0 1 1-1.6-3.7" />
+          <path d="M13 3v3.2h-3.2" />
+        </svg>
+      </button>
+      <button id="home" title="Start page" aria-label="Start page">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2.8 7.2 8 3l5.2 4.2V13H2.8z" />
+        </svg>
+      </button>
+
+      <form id="go" class="address" autocomplete="off">
+        <span id="context" class="context" title=""></span>
+        <input
+          id="url"
+          type="text"
+          spellcheck="false"
+          placeholder="Search, or enter an address"
+          aria-label="Address"
+        />
+      </form>
+
+      <div id="devices" class="devices" aria-live="polite"></div>
+
+      <button id="adapter" class="adapter" title="" aria-label="Bluetooth status">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M6 4.6 10 8l-4 3.4M6 4.6 10 8l-4 3.4" style="display: none" />
+          <path d="M8 2v12M8 2l3.2 2.8L4.8 9.6M8 14l3.2-2.8L4.8 6.4" />
+        </svg>
+      </button>
+
+      <button id="perms" title="Bluetooth permissions" aria-label="Bluetooth permissions">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 1.8 13 3.6v4c0 3-2.1 5.6-5 6.6-2.9-1-5-3.6-5-6.6v-4z" />
+          <path d="M5.9 8.1 7.4 9.6l2.9-3" />
+        </svg>
+      </button>
+
+      <button id="theme" title="Theme" aria-label="Theme">
+        <svg class="ico-system" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="8" cy="8" r="5" />
+          <path d="M8 3a5 5 0 0 0 0 10z" fill="currentColor" stroke="none" />
+        </svg>
+        <svg class="ico-light" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="8" cy="8" r="3.1" />
+          <path d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1" />
+        </svg>
+        <svg class="ico-dark" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M13 9.6A5.4 5.4 0 0 1 6.4 3a5.6 5.6 0 1 0 6.6 6.6z" />
+        </svg>
+      </button>
+
+      <button id="devtools" title="Web inspector" aria-label="Web inspector">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M5.8 4.5 2.6 8l3.2 3.5M10.2 4.5 13.4 8l-3.2 3.5" />
+        </svg>
+      </button>
+      <div id="progress" class="progress" hidden></div>
+    </div>
+    <script src="chrome.js"></script>
+  </body>
+</html>

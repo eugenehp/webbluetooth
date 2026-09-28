@@ -876,6 +876,12 @@ impl Inner {
         ))
     }
 
+    pub async fn request_mtu(&self, _id: &str, _mtu: u16) -> Result<()> {
+        Err(Error::NotSupported(
+            "the raw HCI backend negotiates ATT MTU during connection setup".into(),
+        ))
+    }
+
     pub fn max_write_len(&self, id: &str, _write_type: WriteType) -> Result<usize> {
         let connection = self.connection(id)?;
         Ok(connection.mtu().saturating_sub(3) as usize)
@@ -921,6 +927,8 @@ fn advertisement_from(report: &HciAdvertisement) -> Advertisement {
         manufacturer_data.insert(*company, payload.clone());
     }
     Advertisement {
+        #[cfg(feature = "classic")]
+        class_of_device: None,
         local_name: report.local_name.clone(),
         tx_power: report.tx_power.map(i16::from),
         appearance: report.appearance,
@@ -939,6 +947,8 @@ fn advertisement_from(report: &HciAdvertisement) -> Advertisement {
             .filter_map(|(u, d)| Some((BluetoothUuid::parse(u).ok()?, d.clone())))
             .collect(),
         rssi: report.rssi as i32,
+        // The one transport that sees the packet rather than a parse of it.
+        raw: Some(report.raw.clone()),
     }
 }
 

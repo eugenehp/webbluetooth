@@ -22,6 +22,38 @@ pub use webbluetooth_core::gatt::{CharacteristicProperties, WriteType};
 /// The largest value the spec permits in a single write.
 const MAX_ATTRIBUTE_LENGTH: usize = 512;
 
+fn descriptor_suffix(value: &[u8], offset: usize) -> Result<Vec<u8>> {
+    if offset > value.len() {
+        return Err(Error::InvalidModification(format!(
+            "descriptor offset {offset} exceeds its {}-byte value",
+            value.len()
+        )));
+    }
+    Ok(value[offset..].to_vec())
+}
+
+fn descriptor_patch(mut current: Vec<u8>, offset: usize, value: &[u8]) -> Result<Vec<u8>> {
+    if offset > current.len() {
+        return Err(Error::InvalidModification(format!(
+            "descriptor offset {offset} exceeds its {}-byte value",
+            current.len()
+        )));
+    }
+    let end = offset
+        .checked_add(value.len())
+        .ok_or_else(|| Error::InvalidModification("descriptor value is too large".into()))?;
+    if end > MAX_ATTRIBUTE_LENGTH {
+        return Err(Error::InvalidModification(format!(
+            "value is {end} bytes; a GATT attribute holds at most {MAX_ATTRIBUTE_LENGTH}"
+        )));
+    }
+    if current.len() < end {
+        current.resize(end, 0);
+    }
+    current[offset..end].copy_from_slice(value);
+    Ok(current)
+}
+
 /// `BluetoothRemoteGATTServer`.
 #[derive(Clone)]
 pub struct RemoteGattServer {
@@ -479,6 +511,15 @@ impl RemoteGattCharacteristic {
             .await
     }
 
+    /// Read the descriptor and return the bytes beginning at `offset`.
+    ///
+    /// Descriptor values are bounded by the ATT attribute limit. The portable
+    /// API reads the complete value first because several platform APIs do not
+    /// expose ATT's long-read offset directly.
+    pub async fn read_value_at_offset(&self, offset: usize) -> Result<Vec<u8>> {
+        descriptor_suffix(&self.read_value().await?, offset)
+    }
+
     /// Write and wait for the peer to acknowledge —
     /// `writeValueWithResponse()`.
     ///
@@ -737,6 +778,21 @@ impl RemoteGattDescriptor {
             .await
     }
 
+    /// Read the descriptor's value beginning at `offset`.
+    ///
+    /// The complete value is read first because the platform descriptor APIs
+    /// do not expose a portable ATT long-read offset parameter.
+    pub async fn read_value_at_offset(&self, offset: usize) -> Result<Vec<u8>> {
+        let value = self.read_value().await?;
+        if offset > value.len() {
+            return Err(Error::InvalidModification(format!(
+                "descriptor offset {offset} exceeds its {}-byte value",
+                value.len()
+            )));
+        }
+        Ok(value[offset..].to_vec())
+    }
+
     /// Write the descriptor's value.
     ///
     /// Note that the Client Characteristic Configuration descriptor is
@@ -761,6 +817,17 @@ impl RemoteGattDescriptor {
         self.inner
             .write_descriptor(&self.device_id, &self.handle, value)
             .await
+    }
+
+    /// Replace part of the descriptor value starting at `offset`.
+    ///
+    /// This uses a read-modify-write sequence so it works on platforms whose
+    /// descriptor APIs only expose whole-value writes. The operation fails if
+    /// the existing value cannot be read or the resulting value exceeds the
+    /// ATT attribute limit.
+    pub async fn write_value_at_offset(&self, offset: usize, value: &[u8]) -> Result<()> {
+        let current = descriptor_patch(self.read_value().await?, offset, value)?;
+        self.write_value(&current).await
     }
 }
 
@@ -957,5 +1024,31 @@ impl std::fmt::Debug for Notifications {
             .field("uuid", &self.uuid().as_str())
             .field("lost", &self.lost())
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn descriptor_suffix_validates_offsets() {
+        assert_eq!(descriptor_suffix(&[1, 2, 3], 1).unwrap(), vec![2, 3]);
+        assert_eq!(descriptor_suffix(&[1, 2, 3], 3).unwrap(), Vec::<u8>::new());
+        assert!(descriptor_suffix(&[1, 2, 3], 4).is_err());
+    }
+
+    #[test]
+    fn descriptor_patch_preserves_and_extends_values() {
+        assert_eq!(
+            descriptor_patch(vec![1, 2, 3], 1, &[9, 8]).unwrap(),
+            vec![1, 9, 8]
+        );
+        assert_eq!(
+            descriptor_patch(vec![1, 2], 2, &[3, 4]).unwrap(),
+            vec![1, 2, 3, 4]
+        );
+        assert!(descriptor_patch(vec![1], 2, &[3]).is_err());
+        assert!(descriptor_patch(vec![], 0, &vec![0; MAX_ATTRIBUTE_LENGTH + 1]).is_err());
     }
 }

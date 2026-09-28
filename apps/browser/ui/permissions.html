@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Bluetooth permissions</title>
+    <link rel="stylesheet" href="permissions.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Bluetooth permissions</h1>
+      <p class="sub">
+        Sites keep what you granted them until you take it back here, across
+        restarts. Revoking disconnects anything currently connected.
+      </p>
+    </header>
+
+    <div id="list" class="list"></div>
+
+    <p id="empty" class="empty" hidden>
+      No site has been granted a Bluetooth device yet.
+    </p>
+
+    <script src="permissions.js"></script>
+  </body>
+</html>

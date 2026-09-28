@@ -93,11 +93,20 @@ pub enum Event {
         service_uuids: Vec<String>,
         manufacturer_data: Vec<(u16, Vec<u8>)>,
         service_data: Vec<(String, Vec<u8>)>,
+        class_of_device: Option<u32>,
         connectable: bool,
     },
     ScanFailed {
         code: i32,
     },
+    #[cfg(feature = "classic")]
+    ClassicDiscovered {
+        address: String,
+        name: Option<String>,
+        class_of_device: Option<u32>,
+    },
+    #[cfg(feature = "classic")]
+    ClassicDiscoveryFinished,
     /// `onConnectionStateChange`. `status` is a `GATT_*` code; 0 is success.
     ConnectionStateChanged {
         gatt: Ref,
@@ -651,6 +660,72 @@ unsafe extern "C" fn on_scan_failed(env: Env, this: JObject, code: i32) {
     in_callback(env, |env| emit(env, this, Event::ScanFailed { code }));
 }
 
+#[cfg(feature = "classic")]
+unsafe extern "C" fn on_classic_receive(
+    env: Env,
+    this: JObject,
+    _context: JObject,
+    intent: JObject,
+) {
+    in_callback(env, |env| {
+        let Some(action) =
+            crate::ble::call_object(env, intent, "getAction", "()Ljava/lang/String;", &[])
+                .ok()
+                .and_then(|value| env.get_string(value))
+        else {
+            return;
+        };
+        match action.as_str() {
+            "android.bluetooth.adapter.action.DISCOVERY_FINISHED" => {
+                emit(env, this, Event::ClassicDiscoveryFinished)
+            }
+            "android.bluetooth.device.action.FOUND" => {
+                let key = env.new_string("android.bluetooth.device.extra.DEVICE");
+                let device = crate::ble::call_object(
+                    env,
+                    intent,
+                    "getParcelableExtra",
+                    "(Ljava/lang/String;)Landroid/os/Parcelable;",
+                    &[JValue::object(key)],
+                )
+                .unwrap_or(std::ptr::null_mut());
+                if device.is_null() {
+                    return;
+                }
+                let address = crate::ble::device_address(env, device);
+                let name =
+                    crate::ble::call_object(env, device, "getName", "()Ljava/lang/String;", &[])
+                        .ok()
+                        .and_then(|value| env.get_string(value));
+                let class_of_device = crate::ble::call_object(
+                    env,
+                    device,
+                    "getBluetoothClass",
+                    "()Landroid/bluetooth/BluetoothClass;",
+                    &[],
+                )
+                .ok()
+                .and_then(|class| {
+                    crate::ble::call_int(env, class, "getClassOfDevice", "()I", &[]).ok()
+                })
+                .map(|value| value as u32);
+                if let Some(address) = address {
+                    emit(
+                        env,
+                        this,
+                        Event::ClassicDiscovered {
+                            address,
+                            name,
+                            class_of_device,
+                        },
+                    );
+                }
+            }
+            _ => {}
+        }
+    });
+}
+
 /// Pull an advertisement out of a `ScanResult`.
 fn read_scan_result(env: Env, result: JObject) -> Option<Event> {
     if result.is_null() {
@@ -676,6 +751,18 @@ fn read_scan_result(env: Env, result: JObject) -> Option<Event> {
     let device_class = env.get_object_class(device);
     let get_address = env.method_id(device_class, "getAddress", "()Ljava/lang/String;")?;
     let address = env.get_string(env.call_object(device, get_address, &[]))?;
+    let class_of_device = env
+        .method_id(
+            device_class,
+            "getBluetoothClass",
+            "()Landroid/bluetooth/BluetoothClass;",
+        )
+        .and_then(|get_class| {
+            let class = env.call_object(device, get_class, &[]);
+            let class_type = env.get_object_class(class);
+            let value = env.method_id(class_type, "getClassOfDevice", "()I")?;
+            Some(env.call_int(class, value, &[]) as u32)
+        });
 
     let mut name = None;
     let mut service_uuids = Vec::new();
@@ -717,6 +804,7 @@ fn read_scan_result(env: Env, result: JObject) -> Option<Event> {
         service_uuids,
         manufacturer_data,
         service_data,
+        class_of_device,
         // Android reports connectability only from API 26 in ScanResult, and
         // anything reachable through a Device1 handle accepts connections.
         connectable: true,
@@ -1095,6 +1183,15 @@ pub fn scan_natives() -> Vec<(&'static str, &'static str, *const c_void)> {
     ]
 }
 
+#[cfg(feature = "classic")]
+pub fn classic_discovery_natives() -> Vec<(&'static str, &'static str, *const c_void)> {
+    vec![(
+        "onReceive",
+        "(Landroid/content/Context;Landroid/content/Intent;)V",
+        on_classic_receive as *const c_void,
+    )]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1127,6 +1224,18 @@ mod tests {
         assert_eq!(scan.len(), 3);
         for (_, signature, _) in &scan {
             assert!(signature.ends_with(")V"));
+        }
+
+        #[cfg(feature = "classic")]
+        {
+            let classic = classic_discovery_natives();
+            assert_eq!(classic.len(), 1);
+            assert_eq!(classic[0].0, "onReceive");
+            assert_eq!(
+                classic[0].1,
+                "(Landroid/content/Context;Landroid/content/Intent;)V"
+            );
+            assert!(!classic[0].2.is_null());
         }
     }
 

@@ -1,0 +1,23 @@
+{
+  "identifier": "browser-chrome",
+  "description": "The toolbar and the device chooser. Local pages only, scoped to their own webviews so that web content sharing the main window cannot reach them.",
+  "local": true,
+  "webviews": [
+    "chrome",
+    "chooser",
+    "scanprompt",
+    "permissions"
+  ],
+  "permissions": [
+    "browser-chrome",
+    "device-chooser",
+    "scanning-prompt",
+    "permissions-manager",
+    "core:window:allow-start-dragging"
+  ],
+  "platforms": [
+    "macOS",
+    "windows",
+    "linux"
+  ]
+}

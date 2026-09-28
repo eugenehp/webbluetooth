@@ -1,0 +1,80 @@
+[package]
+name        = "webbluetooth-explorer"
+description = "WebBluetoothExplorer — browse a Bluetooth Low Energy device's services, characteristics and descriptors, read, write and subscribe"
+version     = "0.1.0"
+edition.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+homepage.workspace     = true
+rust-version.workspace = true
+authors.workspace      = true
+# An application, not a library. Nothing here belongs on crates.io.
+publish = false
+
+[dependencies]
+# `unrestricted` is what makes an explorer possible: a grant that names every
+# service, rather than the allowlist `requestDevice` builds. See its
+# documentation — the GATT blocklist still applies.
+# The version is stated alongside the path even though this crate is never
+# published: `cargo package --workspace` verifies every manifest in the
+# workspace, `publish = false` or not, and refuses a dependency that has no
+# version requirement to fall back on. Every library crate here does the same.
+webbluetooth = { path = "../../crates/webbluetooth", version = "0.0.2", features = [
+    "unrestricted",
+] }
+
+egui = "0.35"
+
+# The library's futures, and somewhere to run them. No async runtime: one
+# thread with a `LocalPool` is the whole engine.
+futures-channel  = { version = "0.3", features = ["std"] }
+futures-executor = "0.3"
+futures-util     = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+
+
+
+# Renders the interface headlessly, to a PNG, with no window and no screen
+# capture. The official egui harness: `snapshot` writes and compares images,
+# `wgpu` is what rasterises them.
+# The platform's own save panel, on the platforms that have one. Not
+# decoration: on macOS a path the *user* picked in the system panel is what
+# grants access to it, so a sandboxed or TCC-restricted build can write there
+# and cannot write to a path this program chose for itself.
+#
+# Deliberately not on mobile. `rfd` has no implementation for iOS or Android and
+# fails to compile there, which is the build telling us something true: a modal
+# save panel is not how either platform saves a file. iOS wants a share sheet
+# (`UIActivityViewController`) and Android a Storage Access Framework intent.
+# Until those exist here, mobile writes to the app's own directory and says
+# where — see `save_log_interactively`.
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+rfd = "0.15"
+
+# eframe is split in two rather than shared, because Android needs a different
+# feature set and Cargo unifies features additively — a single entry with
+# defaults would drag `accesskit` in everywhere, and `accesskit` refuses to
+# build alongside `android-native-activity`.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+eframe = "0.35"
+
+# Android has to be told which activity kind hosts the app: `android-activity`
+# owns the `android_main` entry point and will not compile without being told
+# which one it is. `native-activity` is the plain NDK one and needs no Java on
+# top; `game-activity` wants a Java subclass in the APK. This takes the former,
+# which is what an app with no Java side wants — and pays for it by dropping
+# `accesskit`, which is only offered with the other one.
+[target.'cfg(target_os = "android")'.dependencies]
+eframe = { version = "0.35", default-features = false, features = [
+    "android-native-activity",
+    "default_fonts",
+    "glow",
+] }
+
+[dev-dependencies]
+egui_kittest = { version = "0.35", features = ["snapshot", "wgpu"] }
+# For reading the rendered frames back pixel by pixel, which is how the
+# red-rectangle hunt below works. Same version egui_kittest itself uses.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[lints]
+workspace = true

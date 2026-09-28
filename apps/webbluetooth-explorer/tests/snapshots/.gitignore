@@ -1,0 +1,5 @@
+# Rendered by `render_the_interface_for_inspection`, which exists so the
+# interface can be looked at where no screen capture is available. The images
+# carry a wall clock in the log column, so they are never byte-identical
+# between runs and are not baselines to compare against.
+*.png

@@ -1,0 +1,390 @@
+/* The toolbar. One 46px row, set by `shell.rs`; nothing here may grow it,
+   because the webview clips rather than overlapping the page below.
+
+   Every measurement here is Chromium's, from
+   `chrome/browser/ui/layout_constants.cc`, non-touch desktop column:
+
+     kLocationBarHeight            34
+     kToolbarButtonHeight          34
+     kToolbarButtonIconSize        20   (kDefaultIconSizeChromeRefresh)
+     kLocationBarIconSize          16
+     kToolbarElementPadding         4
+     kLocationBarMargin             9
+     TOOLBAR_INTERIOR_MARGIN   VH(6, 6)
+
+   Copied rather than eyeballed because this is the one piece of the browser
+   people have a trained expectation of, and being a few pixels off reads as
+   wrong without being obvious about why.
+
+   Colours come from `prefers-color-scheme` alone. The theme control does not
+   touch this file — it sets the *window's* theme in Rust, which is what
+   `prefers-color-scheme` reports, so the toolbar, the picker, the start page
+   and whatever site is loaded all change together. */
+
+:root {
+  color-scheme: light dark;
+  --bar: #f7f7f9;
+  --line: #d6d6dc;
+  --text: #1b1b1f;
+  --muted: #71717c;
+  --field: #ffffff;
+  --accent: #0082fc;
+  --danger: #c8341f;
+  --ok: #1a9c4e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bar: #2a2a30;
+    --line: #3d3d45;
+    --text: #f0f0f3;
+    --muted: #9a9aa5;
+    --field: #1d1d22;
+    --accent: #4aa5ff;
+    --danger: #ff6b55;
+    --ok: #4fce85;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  /* A column, so the strip and the toolbar each keep their own height.
+     `height: 100%` on the bar made it claim the whole 87px and centred the
+     address field against the wrong box. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bar);
+  color: var(--text);
+  font: 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  user-select: none;
+  cursor: default;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  /* kToolbarElementPadding */
+  gap: 4px;
+  height: 100%;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px;
+  /* kToolbarButtonHeight */
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+
+button svg {
+  /* kToolbarButtonIconSize */
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+button:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text);
+}
+
+button:active {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+/* The address field sits between the two button clusters and takes the
+   slack, so nothing else needs margins to stay apart. */
+.address {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 100px;
+  /* kLocationBarHeight */
+  height: 34px;
+  /* kLocationBarMargin */
+  margin: 0 9px;
+  padding: 0 12px;
+  background: var(--field);
+  border: 1px solid var(--line);
+  /* The omnibox is a pill: half the height. */
+  border-radius: 17px;
+}
+
+.address:focus-within {
+  border-color: var(--accent);
+}
+
+#url {
+  flex: 1;
+  min-width: 0;
+  /* An <input> carries a UA height and padding of its own; without these it
+     sets the row's height instead of taking it. */
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  line-height: normal;
+  user-select: text;
+  cursor: text;
+}
+
+.context {
+  flex: none;
+  /* kLocationBarIconSize */
+  font-size: 13px;
+  line-height: 1;
+}
+
+.context.warn {
+  color: var(--danger);
+}
+
+/* Devices this site holds, inline rather than in a popover: the toolbar is
+   one webview row and anything taller would be clipped, not overlaid. */
+.devices {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 1 auto;
+  max-width: 40%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.devices::-webkit-scrollbar {
+  display: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: 24px;
+  padding: 0 5px 0 9px;
+  margin-right: 1px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.chip .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.chip.connected .dot {
+  background: var(--ok);
+}
+
+.chip button {
+  width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.chip button:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+/* The adapter indicator is a button so it has the same metrics as its
+   neighbours; it does nothing but carry a tooltip. */
+.adapter {
+  color: var(--muted);
+}
+
+.adapter:hover {
+  background: transparent;
+  color: var(--muted);
+}
+
+.adapter.ready {
+  color: var(--accent);
+}
+
+.adapter.bad {
+  color: var(--danger);
+}
+
+/* Only the icon for the active theme is drawn. */
+#theme svg {
+  display: none;
+}
+
+body[data-theme="system"] #theme .ico-system,
+body[data-theme="light"] #theme .ico-light,
+body[data-theme="dark"] #theme .ico-dark {
+  display: block;
+}
+
+/* The tab strip. Chromium's numbers again: kTabHeight is 34 plus the one
+   pixel it overlaps the toolbar by, and kTabStripPadding is 6, so the strip
+   is 41 and the whole chrome webview is 41 + 46.
+
+   The window uses an overlay titlebar, so this strip *is* the titlebar:
+   without giving it that role the chrome webview is clipped to the few
+   pixels the titlebar does not cover. The left inset is the room the traffic
+   lights need — they float over this webview — and `data-tauri-drag-region`
+   gives the window back a way to be dragged. Tauri's handler only fires when
+   the event target itself carries the attribute, so the tabs and buttons
+   inside are unaffected. */
+.tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  /* TAB_STRIP_HEIGHT in shell.rs. */
+  height: 41px;
+  flex: none;
+  padding: 6px 8px 0 78px;
+}
+
+.strip {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 35px;
+  overflow: hidden;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* kTabHeight, less the one-pixel overlap it makes with the toolbar. */
+  height: 34px;
+  flex: 1 1 200px;
+  min-width: 52px;
+  max-width: 220px;
+  padding: 0 6px 0 11px;
+  border-radius: 9px 9px 0 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.tab:hover {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.tab.active {
+  background: var(--bar);
+  color: var(--text);
+}
+
+.tab .label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab .close {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  border-radius: 9px;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+}
+
+.tab:hover .close,
+.tab.active .close {
+  opacity: 1;
+}
+
+/* A tab that is loading says so where the tab is, not on the address bar —
+   a background tab's progress is not the foreground page's. */
+.tab .spinner {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border: 1.5px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.newtab {
+  flex: none;
+  margin-bottom: 3px;
+}
+
+/* Loading. A hairline along the bottom of the toolbar rather than anything
+   that changes the layout: the strip is a fixed 46px and every pixel of it
+   is already spoken for. */
+.progress {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.progress[hidden] {
+  display: none;
+}
+
+.progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 35%;
+  background: var(--accent);
+  animation: sweep 1.05s ease-in-out infinite;
+}
+
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}

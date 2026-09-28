@@ -50,6 +50,12 @@ use std::path::{Path, PathBuf};
 /// The header, which is also the version marker.
 const HEADER: &str = "# webbluetooth grants v1";
 
+/// Stands in for "all of them" in the services and companies fields.
+///
+/// Chosen because it parses as neither a UUID nor a `u16`, so a build without
+/// the `unrestricted` feature reads a wildcard record as a grant of nothing.
+const WILDCARD: &str = "*";
+
 /// A grant as stored: what was allowed, and what the device was called.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stored {
@@ -123,13 +129,25 @@ fn render(devices: &BTreeMap<String, Stored>) -> String {
     let mut out = String::from(HEADER);
     out.push('\n');
     for (id, stored) in devices {
-        let services: Vec<&str> = stored.grant.services.iter().map(|u| u.as_str()).collect();
-        let companies: Vec<String> = stored
-            .grant
-            .manufacturer_data
-            .iter()
-            .map(|c| c.to_string())
-            .collect();
+        // `*` is the wildcard grant, and is not a UUID or a company number —
+        // so a reader that predates the `unrestricted` feature drops it on the
+        // floor and ends up with a grant of nothing. That is the safe
+        // direction for a permission to degrade in.
+        let services: Vec<&str> = if stored.grant.permits_all_services() {
+            vec![WILDCARD]
+        } else {
+            stored.grant.services.iter().map(|u| u.as_str()).collect()
+        };
+        let companies: Vec<String> = if stored.grant.permits_all_manufacturer_data() {
+            vec![WILDCARD.to_owned()]
+        } else {
+            stored
+                .grant
+                .manufacturer_data
+                .iter()
+                .map(|c| c.to_string())
+                .collect()
+        };
         // A tab-separated record, so a name with spaces in it needs no
         // quoting; a name with a tab or newline in it is not representable and
         // is trimmed rather than allowed to forge a second record.
@@ -167,17 +185,28 @@ fn parse(text: &str) -> BTreeMap<String, Stored> {
             id.to_owned(),
             Stored {
                 name: (!name.is_empty()).then(|| name.to_owned()),
-                grant: Grant {
-                    services: services
+                grant: {
+                    let mut grant = Grant::new();
+                    grant.services = services
                         .split(',')
                         .filter(|s| !s.is_empty())
                         .filter_map(|s| BluetoothUuid::parse(s).ok())
-                        .collect(),
-                    manufacturer_data: companies
+                        .collect();
+                    grant.manufacturer_data = companies
                         .split(',')
                         .filter(|s| !s.is_empty())
                         .filter_map(|s| s.parse().ok())
-                        .collect(),
+                        .collect();
+                    #[cfg(feature = "unrestricted")]
+                    {
+                        grant.all_services = services.split(',').any(|field| field == WILDCARD);
+                        grant.all_manufacturer_data =
+                            companies.split(',').any(|field| field == WILDCARD);
+                    }
+                    // Without the feature there is nowhere to put it, so a
+                    // wildcard record reads back as the empty grant it already
+                    // parsed to above.
+                    grant
                 },
             },
         );
@@ -192,12 +221,14 @@ mod tests {
     fn stored(services: &[u16], companies: &[u16], name: Option<&str>) -> Stored {
         Stored {
             name: name.map(str::to_owned),
-            grant: Grant {
-                services: services
+            grant: {
+                let mut grant = Grant::new();
+                grant.services = services
                     .iter()
                     .map(|u| BluetoothUuid::from_u16(*u))
-                    .collect(),
-                manufacturer_data: companies.to_vec(),
+                    .collect();
+                grant.manufacturer_data = companies.to_vec();
+                grant
             },
         }
     }
@@ -306,5 +337,47 @@ mod tests {
             );
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A wildcard grant has to come back as one, or the next run of an explorer
+    /// silently sees nothing.
+    #[cfg(feature = "unrestricted")]
+    #[test]
+    fn a_wildcard_grant_survives_the_store() {
+        let mut devices = BTreeMap::new();
+        devices.insert(
+            "dev".to_owned(),
+            Stored {
+                name: Some("probe".to_owned()),
+                grant: Grant::unrestricted(),
+            },
+        );
+
+        let back = parse(&render(&devices));
+        let grant = &back.get("dev").unwrap().grant;
+        assert!(grant.permits_all_services());
+        assert!(grant.permits_all_manufacturer_data());
+        assert!(
+            grant.services.is_empty(),
+            "the wildcard is not a UUID and must not parse as one"
+        );
+    }
+
+    /// The `*` field is not a UUID and not a company number, so a build with no
+    /// `unrestricted` feature reads the record as a grant of nothing rather
+    /// than inheriting a permission it cannot represent.
+    #[test]
+    fn a_wildcard_record_degrades_to_an_empty_grant() {
+        let text = format!("{HEADER}\ndev\tprobe\t*\t*\n");
+        let back = parse(&text);
+        let grant = &back.get("dev").unwrap().grant;
+
+        assert!(grant.services.is_empty());
+        assert!(grant.manufacturer_data.is_empty());
+        #[cfg(not(feature = "unrestricted"))]
+        {
+            assert!(!grant.permits_all_services());
+            assert!(!grant.permits(&BluetoothUuid::from_u16(0x180F)));
+        }
     }
 }

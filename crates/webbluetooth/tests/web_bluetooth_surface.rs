@@ -3,12 +3,14 @@
 //! "Are we at parity with the standard?" is not a question to answer from
 //! memory — that is how the GATT blocklist ended up with three wrong entries
 //! and the JNI table with four wrong slots. `spec/web-bluetooth-surface.txt`
-//! is generated from MDN's own `browser-compat-data`, and this test requires
-//! that each line in it is either mapped to something here or excluded on
-//! purpose, with the reason recorded.
+//! is generated from the IDL the specification itself declares, extracted by
+//! `w3c/webref`, and this test requires that each line in it is either mapped
+//! to something here or excluded on purpose, with the reason recorded. MDN is
+//! the *second* oracle, in `web-bluetooth-status.txt`: it carries the status
+//! the IDL does not, which is what corroborates a deprecation claim.
 //!
-//! When MDN publishes a new member, the file changes and this test fails until
-//! somebody decides what to do about it. That is the whole mechanism.
+//! When the standard gains a member, the file changes and this test fails
+//! until somebody decides what to do about it. That is the whole mechanism.
 //!
 //! It checks *accounting*, not behaviour: that a member has a counterpart, not
 //! that the counterpart is correct. Behaviour is what the round-trip examples
@@ -132,6 +134,18 @@ fn mapping(member: &str) -> Option<Mapped> {
         "dictionary BluetoothLEScanFilterInit.namePrefix" => As("DeviceFilter::name_prefix"),
         "dictionary BluetoothLEScanFilterInit.serviceData" => As("DeviceFilter::service_data"),
         "dictionary BluetoothLEScanFilterInit.services" => As("DeviceFilter::services"),
+        "dictionary BluetoothLEScanOptions.acceptAllAdvertisements" => As("LeScanOptions::accept_all_advertisements"),
+        "dictionary BluetoothLEScanOptions.filters" => As("LeScanOptions::filters"),
+        "dictionary BluetoothLEScanOptions.keepRepeatedDevices" => As("LeScanOptions::keep_repeated_devices"),
+        "dictionary BluetoothLEScanPermissionDescriptor.acceptAllAdvertisements" => Excluded(
+            "the Permissions API, which is a browser's grant store",
+        ),
+        "dictionary BluetoothLEScanPermissionDescriptor.filters" => Excluded(
+            "the Permissions API, which is a browser's grant store",
+        ),
+        "dictionary BluetoothLEScanPermissionDescriptor.keepRepeatedDevices" => Excluded(
+            "the Permissions API, which is a browser's grant store",
+        ),
         "dictionary BluetoothManufacturerDataFilterInit.companyIdentifier" => As("DeviceFilter::manufacturer_data"),
         "dictionary BluetoothPermissionDescriptor.acceptAllDevices" => Excluded(
             "the Permissions API, which is a browser's grant store",
@@ -170,6 +184,7 @@ fn mapping(member: &str) -> Option<Mapped> {
             "a page can be launched from a device by a browser; nothing outside a browser has a referrer",
         ),
         "interface Bluetooth.requestDevice" => As("Bluetooth::request_device"),
+        "interface Bluetooth.requestLEScan" => As("Bluetooth::request_le_scan"),
         "interface BluetoothAdvertisingEvent.appearance" => As("Advertisement::appearance"),
         "interface BluetoothAdvertisingEvent.constructor" => Excluded(
             "a DOM event type a page constructs for testing; a stream yields values here",
@@ -190,12 +205,30 @@ fn mapping(member: &str) -> Option<Mapped> {
         "interface BluetoothCharacteristicProperties.writableAuxiliaries" => As("CharacteristicProperties::writable_auxiliaries"),
         "interface BluetoothCharacteristicProperties.write" => As("CharacteristicProperties::write"),
         "interface BluetoothCharacteristicProperties.writeWithoutResponse" => As("CharacteristicProperties::write_without_response"),
+        "interface BluetoothDataFilter.constructor" => As("DataPrefix::new"),
+        "interface BluetoothDataFilter.dataPrefix" => As("DataPrefix::new"),
+        "interface BluetoothDataFilter.mask" => As("DataPrefix::with_mask"),
         "interface BluetoothDevice.forget" => As("BluetoothDevice::forget"),
         "interface BluetoothDevice.gatt" => As("BluetoothDevice::gatt"),
         "interface BluetoothDevice.id" => As("BluetoothDevice::id"),
         "interface BluetoothDevice.name" => As("BluetoothDevice::name"),
         "interface BluetoothDevice.watchAdvertisements" => As("BluetoothDevice::watch_advertisements"),
         "interface BluetoothDevice.watchingAdvertisements" => As("BluetoothDevice::watching_advertisements"),
+        "interface BluetoothLEScan.acceptAllAdvertisements" => As("LeScan::accept_all_advertisements"),
+        "interface BluetoothLEScan.active" => As("LeScan::is_active"),
+        "interface BluetoothLEScan.filters" => As("LeScan::filters"),
+        "interface BluetoothLEScan.keepRepeatedDevices" => As("LeScan::keep_repeated_devices"),
+        "interface BluetoothLEScan.stop" => As("LeScan::stop"),
+        "interface BluetoothLEScanFilter.constructor" => As("DeviceFilter::new"),
+        "interface BluetoothLEScanFilter.manufacturerData" => As("DeviceFilter::manufacturer_data"),
+        "interface BluetoothLEScanFilter.name" => As("DeviceFilter::name"),
+        "interface BluetoothLEScanFilter.namePrefix" => As("DeviceFilter::name_prefix"),
+        "interface BluetoothLEScanFilter.serviceData" => As("DeviceFilter::service_data"),
+        "interface BluetoothLEScanFilter.services" => As("DeviceFilter::services"),
+        "interface BluetoothLEScanPermissionResult.scans" => Excluded(
+            "the Permissions API, which is a browser's grant store",
+        ),
+        "interface BluetoothManufacturerDataFilter.constructor" => As("DeviceFilter::manufacturer_data"),
         "interface BluetoothPermissionResult.devices" => Excluded(
             "the Permissions API, which is a browser's grant store",
         ),
@@ -231,6 +264,7 @@ fn mapping(member: &str) -> Option<Mapped> {
         "interface BluetoothRemoteGATTService.getIncludedServices" => As("RemoteGattService::get_included_services"),
         "interface BluetoothRemoteGATTService.isPrimary" => As("RemoteGattService::is_primary"),
         "interface BluetoothRemoteGATTService.uuid" => As("RemoteGattService::uuid"),
+        "interface BluetoothServiceDataFilter.constructor" => As("DeviceFilter::service_data"),
         "interface BluetoothUUID.canonicalUUID" => As("uuid::BluetoothUuid::from_u32"),
         "interface BluetoothUUID.getCharacteristic" => As("uuid::characteristics::parse"),
         "interface BluetoothUUID.getDescriptor" => As("uuid::descriptors::parse"),

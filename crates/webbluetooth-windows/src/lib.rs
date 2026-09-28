@@ -25,6 +25,12 @@ pub mod backend;
 pub mod peripheral_backend;
 
 pub mod ble;
+#[cfg(feature = "classic")]
+pub mod classic;
+#[cfg(feature = "classic")]
+pub mod classic_discovery;
+#[cfg(feature = "classic-l2cap")]
+pub mod classic_l2cap;
 pub mod com;
 pub mod guid;
 pub mod iids;

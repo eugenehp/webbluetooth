@@ -52,6 +52,12 @@ impl Candidate {
     pub fn label(&self) -> &str {
         self.name.as_deref().unwrap_or(&self.id)
     }
+
+    /// Bluetooth Classic Class of Device, when the scanner reported it.
+    #[cfg(feature = "classic")]
+    pub fn class_of_device(&self) -> Option<crate::classic::ClassOfDevice> {
+        self.advertisement.class_of_device
+    }
 }
 
 /// A live stream of matching devices, ending when the scan stops.

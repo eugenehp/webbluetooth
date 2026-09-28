@@ -46,6 +46,13 @@ def main():
     template.AddAdapter("hci0", "testhost")
     template.AddDevice("hci0", "AA:BB:CC:DD:EE:FF", "Mock Heart Rate")
 
+    # ProfileManager1 is not part of python-dbusmock's bluez5 template, but
+    # registering a Classic profile is still testable without a controller:
+    # accept the call and let the Rust side exercise its Profile1 export and
+    # lifecycle. NewConnection is covered separately by the FD plumbing tests.
+    root.AddMethod("org.bluez.ProfileManager1", "RegisterProfile", "osa{sv}", "", "")
+    root.AddMethod("org.bluez.ProfileManager1", "UnregisterProfile", "o", "", "")
+
     device = dbus.Interface(bus.get_object(BLUEZ, DEVICE), MOCK)
     device_props = dbus.Interface(bus.get_object(BLUEZ, DEVICE), dbus.PROPERTIES_IFACE)
 

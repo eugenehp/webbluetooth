@@ -267,6 +267,22 @@ impl BluetoothDevice {
         Ok((payload as u16).saturating_add(3).max(ATT_DEFAULT_MTU))
     }
 
+    /// Request a different ATT MTU and return the value currently known.
+    ///
+    /// The request is advisory: the peer and controller may choose a smaller
+    /// value. Platforms that do not expose an MTU request return
+    /// [`crate::Error::NotSupported`]. Call [`Self::mtu`] after the link has
+    /// settled to observe the negotiated value.
+    pub async fn request_mtu(&self, mtu: u16) -> Result<u16> {
+        if !(23..=517).contains(&mtu) {
+            return Err(crate::Error::InvalidModification(
+                "ATT MTU must be between 23 and 517 bytes".into(),
+            ));
+        }
+        self.inner.request_mtu(&self.id, mtu).await?;
+        self.mtu().await
+    }
+
     /// The device's Bluetooth address, where the platform reveals one.
     ///
     /// `None` on Apple, and only there: CoreBluetooth never exposes a
@@ -293,6 +309,304 @@ impl BluetoothDevice {
     pub async fn open_l2cap_channel(&self, psm: crate::Psm) -> Result<crate::L2capChannel> {
         let target = self.inner.l2cap_target(&self.id, psm).await?;
         crate::l2cap::from_target(target, psm)
+    }
+
+    /// Open an RFCOMM stream on a Bluetooth Classic server channel.
+    #[cfg(all(feature = "rfcomm", target_os = "linux"))]
+    pub async fn open_rfcomm_channel(&self, channel: u8) -> Result<crate::RfcommChannel> {
+        let address = self.address().ok_or_else(|| {
+            crate::Error::NotSupported("RFCOMM requires a platform Bluetooth address".into())
+        })?;
+        crate::rfcomm::open(&address, channel)
+    }
+
+    /// Open Linux RFCOMM with an explicit Classic security requirement.
+    #[cfg(all(feature = "rfcomm", target_os = "linux"))]
+    pub async fn open_rfcomm_channel_with_security(
+        &self,
+        channel: u8,
+        security: crate::ClassicSecurity,
+    ) -> Result<crate::RfcommChannel> {
+        let address = self.address().ok_or_else(|| {
+            crate::Error::NotSupported("RFCOMM requires a platform Bluetooth address".into())
+        })?;
+        crate::rfcomm::open_with_security(&address, channel, security)
+    }
+
+    /// Open an Android RFCOMM service by its 128-bit service UUID.
+    #[cfg(all(feature = "rfcomm", target_os = "android"))]
+    pub async fn open_rfcomm_service(&self, service_uuid: &str) -> Result<crate::RfcommChannel> {
+        let (socket, peer) = self.inner.rfcomm_target(&self.id, service_uuid).await?;
+        crate::rfcomm::open_android(socket, peer)
+    }
+
+    /// Open an Android RFCOMM connection for a profile's SIG service UUID.
+    ///
+    /// This opens the profile transport only. Profile-specific negotiation,
+    /// codecs, and state machines remain the responsibility of the caller.
+    #[cfg(all(feature = "profiles", feature = "rfcomm", target_os = "android"))]
+    pub async fn open_profile_rfcomm(
+        &self,
+        profile: crate::Profile,
+    ) -> Result<crate::RfcommChannel> {
+        let uuid = profile.service_uuid().ok_or_else(|| {
+            crate::Error::NotSupported("this profile has no RFCOMM service UUID".into())
+        })?;
+        self.open_rfcomm_service(uuid.as_str()).await
+    }
+
+    /// Open a Linux BlueZ profile by querying SDP for its RFCOMM channel.
+    #[cfg(all(
+        feature = "profiles",
+        feature = "rfcomm",
+        target_os = "linux",
+        not(feature = "linux-hci")
+    ))]
+    pub async fn open_profile_rfcomm(
+        &self,
+        profile: crate::Profile,
+    ) -> Result<crate::RfcommChannel> {
+        let service = profile.service_uuid().ok_or_else(|| {
+            crate::Error::NotSupported("this profile has no RFCOMM service UUID".into())
+        })?;
+        let address = self.address().ok_or_else(|| {
+            crate::Error::NotSupported("RFCOMM requires a platform Bluetooth address".into())
+        })?;
+        let records = self.inner.backend().query_sdp(&address, service).await?;
+        let channel = records
+            .iter()
+            .find_map(webbluetooth_core::SdpServiceRecord::rfcomm_channel)
+            .ok_or_else(|| crate::Error::NotFound("SDP record has no RFCOMM channel".into()))?;
+        crate::rfcomm::open(&address, channel)
+    }
+
+    /// Open a Linux HFP/HSP AT session over the profile's SDP RFCOMM channel.
+    #[cfg(all(
+        feature = "profiles",
+        feature = "rfcomm",
+        target_os = "linux",
+        not(feature = "linux-hci")
+    ))]
+    pub async fn open_hfp_session(&self) -> Result<webbluetooth_linux::hfp::HfpSession> {
+        let channel = self.open_profile_rfcomm(crate::Profile::Hfp).await?;
+        Ok(webbluetooth_linux::hfp::HfpSession::new(channel))
+    }
+
+    /// Open a Linux AVRCP pass-through session over SDP/RFCOMM.
+    #[cfg(all(
+        feature = "profiles",
+        feature = "rfcomm",
+        target_os = "linux",
+        not(feature = "linux-hci")
+    ))]
+    pub async fn open_avrcp_session(&self) -> Result<webbluetooth_linux::avrcp::AvrcpSession> {
+        let channel = self.open_profile_rfcomm(crate::Profile::Avrcp).await?;
+        Ok(webbluetooth_linux::avrcp::AvrcpSession::new(channel))
+    }
+
+    /// Open a Linux PAN profile over its SDP Classic L2CAP PSM.
+    #[cfg(all(
+        feature = "profiles",
+        feature = "classic-l2cap",
+        target_os = "linux",
+        not(feature = "linux-hci")
+    ))]
+    pub async fn open_pan(&self) -> Result<crate::ClassicL2capChannel> {
+        self.open_profile_l2cap(crate::Profile::Pan).await
+    }
+
+    /// Open a Linux PAN/BNEP session over SDP-resolved Classic L2CAP.
+    #[cfg(all(
+        feature = "profiles",
+        feature = "classic-l2cap",
+        target_os = "linux",
+        not(feature = "linux-hci")
+    ))]
+    pub async fn open_pan_session(&self) -> Result<webbluetooth_linux::pan::PanSession> {
+        Ok(webbluetooth_linux::pan::PanSession::new(
+            self.open_pan().await?,
+        ))
+    }
+
+    /// Open a Linux DUN profile over its SDP RFCOMM channel.
+    #[cfg(all(
+        feature = "profiles",
+        feature = "rfcomm",
+        target_os = "linux",
+        not(feature = "linux-hci")
+    ))]
+    pub async fn open_dun(&self) -> Result<crate::RfcommChannel> {
+        self.open_profile_rfcomm(crate::Profile::Dun).await
+    }
+
+    /// Open a Linux DUN AT session over SDP/RFCOMM.
+    #[cfg(all(
+        feature = "profiles",
+        feature = "rfcomm",
+        target_os = "linux",
+        not(feature = "linux-hci")
+    ))]
+    pub async fn open_dun_session(&self) -> Result<webbluetooth_linux::dun::DunSession> {
+        let channel = self.open_dun().await?;
+        Ok(webbluetooth_linux::dun::DunSession::new(channel))
+    }
+
+    /// Open a Linux OBEX Object Push profile over its SDP RFCOMM channel.
+    #[cfg(all(
+        feature = "profiles",
+        feature = "rfcomm",
+        target_os = "linux",
+        not(feature = "linux-hci")
+    ))]
+    pub async fn open_obex(&self) -> Result<crate::RfcommChannel> {
+        self.open_profile_rfcomm(crate::Profile::Obex).await
+    }
+
+    /// Open a Linux OBEX FTP profile over its SDP RFCOMM channel.
+    #[cfg(all(
+        feature = "profiles",
+        feature = "rfcomm",
+        target_os = "linux",
+        not(feature = "linux-hci")
+    ))]
+    pub async fn open_obex_ftp(&self) -> Result<crate::RfcommChannel> {
+        self.open_profile_rfcomm(crate::Profile::Ftp).await
+    }
+
+    /// Open a Linux OBEX Object Push session.
+    #[cfg(all(
+        feature = "profiles",
+        feature = "rfcomm",
+        target_os = "linux",
+        not(feature = "linux-hci")
+    ))]
+    pub async fn open_obex_session(&self) -> Result<webbluetooth_linux::obex::ObexSession> {
+        let channel = self.open_obex().await?;
+        Ok(webbluetooth_linux::obex::ObexSession::new(channel))
+    }
+
+    /// Open a Linux OBEX FTP session.
+    #[cfg(all(
+        feature = "profiles",
+        feature = "rfcomm",
+        target_os = "linux",
+        not(feature = "linux-hci")
+    ))]
+    pub async fn open_obex_ftp_session(&self) -> Result<webbluetooth_linux::obex::ObexSession> {
+        let channel = self.open_obex_ftp().await?;
+        Ok(webbluetooth_linux::obex::ObexSession::new(channel))
+    }
+
+    /// Open a Linux BlueZ profile by querying SDP for its Classic L2CAP PSM.
+    #[cfg(all(
+        feature = "profiles",
+        feature = "classic-l2cap",
+        target_os = "linux",
+        not(feature = "linux-hci")
+    ))]
+    pub async fn open_profile_l2cap(
+        &self,
+        profile: crate::Profile,
+    ) -> Result<crate::ClassicL2capChannel> {
+        let service = profile.service_uuid().ok_or_else(|| {
+            crate::Error::NotSupported("this profile has no Classic service UUID".into())
+        })?;
+        let address = self.address().ok_or_else(|| {
+            crate::Error::NotSupported("Classic L2CAP requires a Bluetooth address".into())
+        })?;
+        let records = self.inner.backend().query_sdp(&address, service).await?;
+        let psm = records
+            .iter()
+            .find_map(webbluetooth_core::SdpServiceRecord::l2cap_psm)
+            .and_then(crate::ClassicPsm::new)
+            .ok_or_else(|| crate::Error::NotFound("SDP record has no Classic L2CAP PSM".into()))?;
+        crate::classic_l2cap::open(&address, psm)
+    }
+
+    /// Open a Windows profile transport using its SIG service UUID.
+    #[cfg(all(feature = "profiles", feature = "rfcomm", target_os = "windows"))]
+    pub async fn open_profile_rfcomm(
+        &self,
+        profile: crate::Profile,
+    ) -> Result<crate::RfcommChannel> {
+        let uuid = profile.service_uuid().ok_or_else(|| {
+            crate::Error::NotSupported("this profile has no RFCOMM service UUID".into())
+        })?;
+        self.open_rfcomm_service(uuid.as_str()).await
+    }
+
+    /// Open a Windows RFCOMM server channel through Winsock `AF_BTH`.
+    #[cfg(all(feature = "rfcomm", target_os = "windows"))]
+    pub async fn open_rfcomm_channel(&self, channel: u8) -> Result<crate::RfcommChannel> {
+        let address = self.address().ok_or_else(|| {
+            crate::Error::NotSupported("RFCOMM requires a Bluetooth address".into())
+        })?;
+        crate::rfcomm::open_windows(&address, channel)
+    }
+
+    /// Open a Windows RFCOMM profile by its SDP service UUID.
+    #[cfg(all(feature = "rfcomm", target_os = "windows"))]
+    pub async fn open_rfcomm_service(&self, service_uuid: &str) -> Result<crate::RfcommChannel> {
+        let address = self.address().ok_or_else(|| {
+            crate::Error::NotSupported("RFCOMM requires a platform Bluetooth address".into())
+        })?;
+        crate::rfcomm::open_windows_service(&address, service_uuid)
+    }
+
+    /// Open a Bluetooth Classic L2CAP channel on a Protocol/Service Multiplexer.
+    #[cfg(all(feature = "classic-l2cap", target_os = "linux"))]
+    pub async fn open_classic_l2cap_channel(
+        &self,
+        psm: crate::ClassicPsm,
+    ) -> Result<crate::ClassicL2capChannel> {
+        let address = self.address().ok_or_else(|| {
+            crate::Error::NotSupported("Classic L2CAP requires a Bluetooth address".into())
+        })?;
+        crate::classic_l2cap::open(&address, psm)
+    }
+
+    /// Open a Linux Classic HID host connection.
+    #[cfg(all(feature = "profiles", feature = "classic-l2cap", target_os = "linux"))]
+    pub async fn open_hid_host(&self) -> Result<webbluetooth_linux::hid_host::HidHost> {
+        let address = self.address().ok_or_else(|| {
+            crate::Error::NotSupported("HID host requires a Bluetooth address".into())
+        })?;
+        webbluetooth_linux::hid_host::HidHost::connect(&address).await
+    }
+
+    /// Open Linux Classic L2CAP with an explicit security requirement.
+    #[cfg(all(feature = "classic-l2cap", target_os = "linux"))]
+    pub async fn open_classic_l2cap_with_security(
+        &self,
+        psm: crate::ClassicPsm,
+        security: crate::ClassicSecurity,
+    ) -> Result<crate::ClassicL2capChannel> {
+        let address = self.address().ok_or_else(|| {
+            crate::Error::NotSupported("Classic L2CAP requires a Bluetooth address".into())
+        })?;
+        crate::classic_l2cap::open_with_security(&address, psm, security)
+    }
+
+    /// Open an Android Bluetooth Classic L2CAP socket on a PSM.
+    #[cfg(all(feature = "classic-l2cap", target_os = "android"))]
+    pub async fn open_classic_l2cap_psm(
+        &self,
+        psm: crate::ClassicPsm,
+    ) -> Result<crate::ClassicL2capChannel> {
+        let (socket, peer) = self.inner.classic_l2cap_target(&self.id, psm.get()).await?;
+        crate::classic_l2cap::open_android(socket, psm, peer)
+    }
+
+    /// Open a Windows Bluetooth Classic L2CAP PSM through WinSock `AF_BTH`.
+    #[cfg(all(feature = "classic-l2cap", target_os = "windows"))]
+    pub async fn open_classic_l2cap_channel(
+        &self,
+        psm: crate::ClassicPsm,
+    ) -> Result<crate::ClassicL2capChannel> {
+        let address = self.address().ok_or_else(|| {
+            crate::Error::NotSupported("Classic L2CAP requires a Bluetooth address".into())
+        })?;
+        crate::classic_l2cap_windows::open(&address, psm)
     }
 
     /// Revoke this process's access — `BluetoothDevice.forget()`.

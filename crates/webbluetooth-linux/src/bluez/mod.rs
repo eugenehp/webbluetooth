@@ -49,6 +49,8 @@ pub mod interfaces {
     pub const GATT_MANAGER: &str = "org.bluez.GattManager1";
     pub const LE_ADVERTISING_MANAGER: &str = "org.bluez.LEAdvertisingManager1";
     pub const LE_ADVERTISEMENT: &str = "org.bluez.LEAdvertisement1";
+    pub const PROFILE_MANAGER: &str = "org.bluez.ProfileManager1";
+    pub const PROFILE: &str = "org.bluez.Profile1";
 }
 
 pub const SERVICE_NAME: &str = "org.bluez";
@@ -401,7 +403,7 @@ impl Bluez {
                         .reply_serial
                         .map(|s| connection.take_fds(s))
                         .unwrap_or_default();
-                    (m.body, fds)
+                    (m.body.clone(), fds)
                 }))
             }),
         );

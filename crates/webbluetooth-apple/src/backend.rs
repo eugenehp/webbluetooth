@@ -1285,6 +1285,12 @@ impl Inner {
         ))
     }
 
+    pub async fn request_mtu(&self, _id: &str, _mtu: u16) -> Result<()> {
+        Err(Error::NotSupported(
+            "CoreBluetooth negotiates ATT MTU internally and exposes no request API".into(),
+        ))
+    }
+
     pub fn max_write_len(&self, id: &str, write_type: WriteType) -> Result<usize> {
         let peripheral = self.peripheral(id)?;
         let write_type = match write_type {
@@ -1356,6 +1362,8 @@ fn advertisement_from_sys(adv: &cb::Advertisement, rssi: i32) -> Advertisement {
     }
 
     Advertisement {
+        #[cfg(feature = "classic")]
+        class_of_device: None,
         local_name: adv.local_name.clone(),
         tx_power: adv.tx_power,
         // CoreBluetooth does not expose it.
@@ -1371,6 +1379,9 @@ fn advertisement_from_sys(adv: &cb::Advertisement, rssi: i32) -> Advertisement {
             .filter_map(|(u, d)| Some((BluetoothUuid::from_cbuuid_string(u).ok()?, d.clone())))
             .collect(),
         rssi,
+        // CoreBluetooth hands over a parsed dictionary; the packet itself
+        // never reaches us.
+        raw: None,
     }
 }
 

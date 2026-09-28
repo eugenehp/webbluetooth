@@ -1,0 +1,193 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f6f6f9;
+  --panel: #ffffff;
+  --line: #e4e4ea;
+  --text: #16161a;
+  --muted: #64646f;
+  --accent: #0082fc;
+  --on-accent: #ffffff;
+  --code: #eceff4;
+  --good: #1a8a45;
+  --bad: #c8341f;
+}
+
+/* Three sources, in order of authority: the system, and then an explicit
+   choice the user made.
+
+   The desktop build does not need the second half — it sets the *window's*
+   theme, which is what `prefers-color-scheme` reports. `Window::set_theme`
+   is documented "iOS / Android: Unsupported", so on a phone the choice
+   arrives as `data-theme` on the root element instead, and the media query
+   has to stand aside when it is present. A setting that silently does
+   nothing is worse than no setting. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17171b;
+    --panel: #212127;
+    --line: #34343c;
+    --text: #f1f1f4;
+    --muted: #9b9ba6;
+    --accent: #3ea0ff;
+    --on-accent: #08101a;
+    --code: #2b2b33;
+    --good: #46c97a;
+    --bad: #ff6b55;
+  }
+}
+
+:root[data-theme="dark"] {
+    --bg: #17171b;
+    --panel: #212127;
+    --line: #34343c;
+    --text: #f1f1f4;
+    --muted: #9b9ba6;
+    --accent: #3ea0ff;
+    --on-accent: #08101a;
+    --code: #2b2b33;
+    --good: #46c97a;
+    --bad: #ff6b55;
+  }
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 26px 20px 40px;
+  background: var(--bg);
+  color: var(--text);
+  font: 13.5px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+main {
+  max-width: 660px;
+  margin: 0 auto;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 21px;
+  letter-spacing: -0.015em;
+}
+
+.rune {
+  color: var(--accent);
+}
+
+.lede {
+  margin: 0 0 18px;
+  color: var(--muted);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+code {
+  background: var(--code);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font: 0.88em/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 14px;
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--muted);
+}
+
+.facts dd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+.yes {
+  color: var(--good);
+}
+
+.no {
+  color: var(--bad);
+}
+
+.hint {
+  margin: 0 0 9px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 9px;
+}
+
+button {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 5px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--on-accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.log {
+  margin: 0;
+  padding: 9px 11px;
+  min-height: 70px;
+  max-height: 260px;
+  overflow: auto;
+  background: var(--code);
+  border-radius: 8px;
+  font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.links {
+  margin: 0 0 9px;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.links a {
+  color: var(--accent);
+}

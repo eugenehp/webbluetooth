@@ -193,7 +193,12 @@ impl Inner {
                     service_data,
                 } => {
                     let mut advertisement = webbluetooth_core::filter::Advertisement {
+                        #[cfg(feature = "classic")]
+                        class_of_device: None,
                         rssi,
+                        // The browser hands over an event object; the bytes
+                        // behind it are not exposed to a page.
+                        raw: None,
                         tx_power: tx_power.map(|p| p as i16),
                         appearance: appearance.map(|a| a as u16),
                         local_name: name.clone(),
@@ -691,6 +696,12 @@ impl Inner {
     /// The browser splits a long write itself, so this is a floor rather than
     /// a limit: writing more than this works, it simply takes more than one
     /// PDU on the wire.
+    pub async fn request_mtu(&self, _id: &str, _mtu: u16) -> Result<()> {
+        Err(Error::NotSupported(
+            "the Web Bluetooth platform does not expose ATT MTU negotiation".into(),
+        ))
+    }
+
     pub fn max_write_len(&self, id: &str, _write_type: WriteType) -> Result<usize> {
         let _ = self.generation(id)?;
         Ok(20)

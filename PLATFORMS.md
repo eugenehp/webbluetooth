@@ -27,6 +27,41 @@ browser's. **Node and Deno** are the opposite: neither has
 backend the host platform uses. One `.node` file serves both, because Deno
 implements Node-API.
 
+## Bluetooth Classic and RFCOMM
+
+The standard-shaped API remains Bluetooth LE/GATT. Bluetooth Classic support is
+opt-in through the `classic` feature so applications can distinguish native
+extensions from the Web Bluetooth surface. RFCOMM is a separate `rfcomm`
+feature, which implies `classic`; its current implementation uses Linux's
+`AF_BLUETOOTH` RFCOMM sockets.
+
+The separate `apple-classic` feature reserves the macOS IOBluetooth backend
+boundary. It is intentionally not enabled by `classic`: CoreBluetooth remains
+LE-only, and the IOBluetooth implementation is not yet present. It cannot be
+provided on iOS, tvOS, watchOS, visionOS, or browser targets.
+
+RFCOMM is available on Linux, Android, and Windows through their native socket
+APIs. Apple CoreBluetooth, WebAssembly, and the browser expose no Bluetooth
+Classic transport through this crate. The feature flag does not make an
+unavailable platform transport appear: callers should branch on
+`webbluetooth::CLASSIC` and `webbluetooth::RFCOMM`, and use
+`webbluetooth::public` when they need only the standard-compatible API.
+
+Android supports RFCOMM service connections through
+`BluetoothDevice::open_rfcomm_service()` when the `rfcomm` feature is enabled.
+The Android API takes a service UUID because `BluetoothSocket` resolves the
+RFCOMM server through an SDP service record. Android Classic discovery is
+delivered through the platform broadcast receiver and merged into the normal
+scan hub. Android Classic L2CAP client and server support are available through
+native socket APIs; its existing L2CAP API remains the LE CoC path. Windows uses `BluetoothDevice::open_rfcomm_channel()` with a
+numeric server channel through WinSock `AF_BTH`.
+
+Raw ACL and SCO/eSCO packet sockets are Linux-only. Android exposes managed
+Bluetooth sockets and audio routing rather than raw controller packets, while
+Windows exposes WinRT and WinSock profile transports rather than a user-mode
+raw HCI socket. `ProtocolCapabilities::raw_acl()` and `raw_sco()` therefore
+remain false on those targets even when the Cargo features are enabled.
+
 tvOS, watchOS and visionOS are Rust tier-3 targets: no prebuilt `std`, so they
 need nightly and `-Z build-std`. The script handles that and skips them with a
 note if nightly or `rust-src` is missing.

@@ -21,10 +21,15 @@ use crate::sys::{
     address_type, bind_le_source, close, connect, errno, parse_address, read, shutdown, socket,
     write, SockAddrL2, AF_BLUETOOTH, BTPROTO_L2CAP, EINTR, SHUT_RDWR, SOCK_SEQPACKET,
 };
+use futures_channel::mpsc;
+use futures_core::Stream;
+use futures_util::StreamExt;
 use std::collections::VecDeque;
 use std::ffi::c_int;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 
 pub use webbluetooth_core::l2cap::{ChannelSink, Closed, Psm};
 
@@ -99,6 +104,21 @@ impl Channel {
             closed: Mutex::new(None),
             stopped,
         })
+    }
+
+    /// Adopt an already-connected LE L2CAP socket.
+    pub fn adopt_fd(fd: c_int, psm: Psm, peer: String, sink: Arc<dyn ChannelSink>) -> Self {
+        let socket = Arc::new(Socket(fd));
+        let stopped = Arc::new(AtomicBool::new(false));
+        spawn_reader(socket.clone(), sink, stopped.clone(), psm);
+        Self {
+            psm,
+            peer,
+            fd: socket,
+            writing: Mutex::new(VecDeque::new()),
+            closed: Mutex::new(None),
+            stopped,
+        }
     }
 
     pub fn psm(&self) -> Psm {
@@ -213,6 +233,153 @@ fn spawn_reader(
 /// `webbluetooth-core`'s and identical on every platform. Only what is above
 /// this line is Bluetooth-stack-specific.
 pub type L2capChannel = webbluetooth_core::l2cap::L2capChannel<Channel>;
+
+/// Listener for inbound LE L2CAP connection-oriented channels.
+pub struct L2capListener {
+    socket: Arc<Socket>,
+    incoming: mpsc::UnboundedReceiver<webbluetooth_core::Result<L2capChannel>>,
+}
+
+/// Handle used to stop a listener whose stream is being routed elsewhere.
+pub struct L2capListenerHandle {
+    socket: Arc<Socket>,
+}
+
+impl Drop for L2capListenerHandle {
+    fn drop(&mut self) {
+        unsafe { shutdown(self.socket.0, SHUT_RDWR) };
+    }
+}
+
+impl L2capListener {
+    /// Route accepted channels to a callback on a dedicated thread.
+    pub fn spawn<F>(self, callback: F) -> webbluetooth_core::Result<L2capListenerHandle>
+    where
+        F: Fn(webbluetooth_core::Result<L2capChannel>) + Send + 'static,
+    {
+        let handle = L2capListenerHandle {
+            socket: self.socket.clone(),
+        };
+        let name = "webbluetooth-l2cap-le-router";
+        std::thread::Builder::new()
+            .name(name.into())
+            .spawn(move || {
+                futures_executor::block_on(async move {
+                    let mut listener = self;
+                    while let Some(channel) = listener.next().await {
+                        callback(channel);
+                    }
+                });
+            })
+            .map_err(|error| webbluetooth_core::Error::Network(error.to_string()))?;
+        Ok(handle)
+    }
+}
+
+impl Stream for L2capListener {
+    type Item = webbluetooth_core::Result<L2capChannel>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.incoming).poll_next(cx)
+    }
+}
+
+impl Drop for L2capListener {
+    fn drop(&mut self) {
+        unsafe { shutdown(self.socket.0, SHUT_RDWR) };
+    }
+}
+
+/// Bind and listen on an LE L2CAP PSM. Pass zero to let the kernel allocate it.
+pub fn listen(psm: Psm) -> webbluetooth_core::Result<(Psm, L2capListener)> {
+    let fd = unsafe { socket(AF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_L2CAP) };
+    if fd < 0 {
+        return Err(webbluetooth_core::Error::Network(format!(
+            "could not create LE L2CAP listener (errno {})",
+            errno()
+        )));
+    }
+    let socket = Arc::new(Socket(fd));
+    let address = SockAddrL2 {
+        family: AF_BLUETOOTH as u16,
+        psm: psm.to_le(),
+        bdaddr: crate::sys::BDADDR_ANY,
+        cid: 0,
+        bdaddr_type: crate::sys::BDADDR_LE_PUBLIC,
+    };
+    if unsafe {
+        crate::sys::bind(
+            fd,
+            (&raw const address).cast(),
+            std::mem::size_of::<SockAddrL2>() as u32,
+        )
+    } < 0
+        || unsafe { crate::sys::listen(fd, 8) } < 0
+    {
+        return Err(webbluetooth_core::Error::Network(format!(
+            "could not bind LE L2CAP PSM {psm} (errno {})",
+            errno()
+        )));
+    }
+    let mut bound = SockAddrL2 {
+        family: 0,
+        psm: 0,
+        bdaddr: [0; 6],
+        cid: 0,
+        bdaddr_type: 0,
+    };
+    let mut length = std::mem::size_of::<SockAddrL2>() as u32;
+    if unsafe { crate::sys::getsockname(fd, (&raw mut bound).cast(), &mut length) } < 0 {
+        return Err(webbluetooth_core::Error::Network(format!(
+            "could not query LE L2CAP PSM (errno {})",
+            errno()
+        )));
+    }
+    let bound_psm = u16::from_le(bound.psm);
+    let (tx, rx) = mpsc::unbounded();
+    let listener_fd = socket.clone();
+    let accept_fd = listener_fd.clone();
+    std::thread::Builder::new()
+        .name(format!("webbluetooth-l2cap-le-listener-{bound_psm:04x}"))
+        .spawn(move || loop {
+            let mut peer = SockAddrL2 {
+                family: 0,
+                psm: 0,
+                bdaddr: [0; 6],
+                cid: 0,
+                bdaddr_type: 0,
+            };
+            let mut length = std::mem::size_of::<SockAddrL2>() as u32;
+            let accepted =
+                unsafe { crate::sys::accept(accept_fd.0, (&raw mut peer).cast(), &mut length) };
+            if accepted < 0 {
+                break;
+            }
+            let (channel_sink, sink, incoming) = webbluetooth_core::l2cap::sink();
+            let peer_id = peer
+                .bdaddr
+                .iter()
+                .rev()
+                .map(|byte| format!("{byte:02X}"))
+                .collect::<Vec<_>>()
+                .join(":");
+            let channel = Channel::adopt_fd(accepted, bound_psm, peer_id, channel_sink);
+            if tx
+                .unbounded_send(Ok(L2capChannel::new(channel, sink, incoming)))
+                .is_err()
+            {
+                break;
+            }
+        })
+        .map_err(|error| webbluetooth_core::Error::Network(error.to_string()))?;
+    Ok((
+        bound_psm,
+        L2capListener {
+            socket,
+            incoming: rx,
+        },
+    ))
+}
 
 impl webbluetooth_core::l2cap::PlatformChannel for Channel {
     fn psm(&self) -> Psm {

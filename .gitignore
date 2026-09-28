@@ -21,6 +21,38 @@
 *.p12
 *.certSigningRequest
 
+# Reference material: other people's applications, unpacked here to be read
+# while building ours. Not part of the project and not ours to redistribute —
+# `original/` held 458 MB of nRF Connect for Desktop and a decompiled nRF
+# Connect for Mobile APK, which is both a licence this repository cannot grant
+# and 2,024 files of noise in `git status`.
+/original/
+
+# Per-developer signing and account configuration. None of it describes the
+# project, all of it differs between machines, and the Apple team identifier in
+# particular is an account identifier that has no business in a public history.
+# The iOS project reads it from `APPLE_DEVELOPMENT_TEAM` in the environment —
+# see `apps/browser/README.md` — and `scripts/ios.sh` discovers it from the
+# provisioning profile instead.
+.env
+.env.*
+!.env.example
+# Android release signing: the keystore itself and the passwords beside it.
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+# Gradle's record of where *this* machine keeps the SDK and NDK.
+local.properties
+# Xcode build settings a developer overrides locally.
+Local.xcconfig
+
+# Editor and IDE state, which is per-person even when the editor is shared.
+.idea/
+.vscode/
+*.xcuserstate
+xcuserdata/
+
 # `Cargo.lock` is deliberately **not** ignored. This workspace ships binaries
 # and examples, and current cargo guidance is to commit the lockfile even for
 # libraries: it is what makes `./scripts/check.sh` and a release build

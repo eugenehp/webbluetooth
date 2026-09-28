@@ -1,0 +1,24 @@
+{
+  "identifier": "mobile-page",
+  "description": "The page's webview on iOS and Android. It now loads arbitrary sites, so the Bluetooth commands are granted for any http(s) origin \u2014 the same grant capabilities/content.json makes on a desktop. The toolbar commands are here too because the toolbar is injected into the page; none of them can reach another origin's grants. The chooser, the scanning prompt and the permissions view are deliberately absent: they live in their own windows, which is what keeps a site from painting over the consent step or enumerating what other sites hold.",
+  "platforms": [
+    "iOS",
+    "android"
+  ],
+  "local": true,
+  "remote": {
+    "urls": [
+      "http://*",
+      "https://*",
+      "http://*:*",
+      "https://*:*"
+    ]
+  },
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "bluetooth-api",
+    "mobile-chrome"
+  ]
+}

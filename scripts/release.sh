@@ -96,7 +96,7 @@ fi
 say "package + verify (all eight)"
 # Emptied first, and not reused. Verification serves the packaged siblings from
 # a temporary registry *inside* this directory, keyed by a version number that
-# does not change while 0.0.1 is unpublished — so a leftover index or a
+# does not change while that version is unpublished — so a leftover index or a
 # leftover rlib can be from an older tree. Both have happened here: once a good
 # release failed, once `webbluetooth-apple` could not be downloaded at all. A
 # gate that can pass on stale state is worse than one that fails on it.

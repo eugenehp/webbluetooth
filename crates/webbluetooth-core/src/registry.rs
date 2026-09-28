@@ -32,8 +32,27 @@ pub struct Grant {
     /// The services this grant permits. Anything else is refused, and the
     /// blocklist overrides it.
     pub services: BTreeSet<BluetoothUuid>,
+    /// Every service on the device, whatever `services` says.
+    ///
+    /// Outside the Web Bluetooth model, and behind the `unrestricted` feature
+    /// so that reaching for it is a decision somebody made in a manifest. It
+    /// exists for the one program an allowlist cannot serve: a general
+    /// explorer, which shows a device's custom 128-bit services and therefore
+    /// cannot name them in advance.
+    ///
+    /// The blocklist is not part of this and still applies. Read it through
+    /// [`Grant::permits_all_services`], which compiles either way.
+    #[cfg(feature = "unrestricted")]
+    pub all_services: bool,
     /// Company identifiers whose advertisement data may be seen.
     pub manufacturer_data: Vec<u16>,
+    /// Manufacturer data from every company, whatever `manufacturer_data` says.
+    ///
+    /// Gated as [`Self::all_services`] is, and read through
+    /// [`Grant::permits_all_manufacturer_data`]. The manufacturer blocklist is
+    /// not part of this either, and still applies.
+    #[cfg(feature = "unrestricted")]
+    pub all_manufacturer_data: bool,
 }
 
 impl Grant {
@@ -46,6 +65,82 @@ impl Grant {
     /// [`Bluetooth::adopt_device`]: https://docs.rs/webbluetooth
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Reach every service on the device — the explorer's grant.
+    ///
+    /// This is the deliberate hole in the allowlist, and the only thing in
+    /// this crate that opens one. Web Bluetooth's per-device allowlist exists
+    /// to stop a *page* learning more than the user agreed to; a program that
+    /// is itself the thing the user is operating — a BLE browser, a bring-up
+    /// tool — is on the other side of that boundary and has to enumerate what
+    /// it was never told about.
+    ///
+    /// The blocklist is unaffected: `get_primary_service` refuses a
+    /// blocklisted service under this grant exactly as under any other, and
+    /// blocklisted attributes stay filtered out of discovery.
+    #[cfg(feature = "unrestricted")]
+    pub fn all_services() -> Self {
+        Self {
+            all_services: true,
+            ..Self::default()
+        }
+    }
+
+    /// See manufacturer data from every company identifier.
+    ///
+    /// The manufacturer blocklist still applies, so an iBeacon frame is
+    /// withheld under this too — that one is not a permission.
+    #[cfg(feature = "unrestricted")]
+    pub fn all_manufacturer_data(mut self) -> Self {
+        self.all_manufacturer_data = true;
+        self
+    }
+
+    /// Every service and every company identifier: [`Self::all_services`] and
+    /// [`Self::all_manufacturer_data`] together.
+    #[cfg(feature = "unrestricted")]
+    pub fn unrestricted() -> Self {
+        Self::all_services().all_manufacturer_data()
+    }
+
+    /// Whether this grant reaches every service, rather than a named set.
+    ///
+    /// Always `false` without the `unrestricted` feature, so a caller checks
+    /// this without knowing whether the field exists.
+    pub fn permits_all_services(&self) -> bool {
+        #[cfg(feature = "unrestricted")]
+        {
+            self.all_services
+        }
+        #[cfg(not(feature = "unrestricted"))]
+        {
+            false
+        }
+    }
+
+    /// Whether this grant reaches every company identifier.
+    pub fn permits_all_manufacturer_data(&self) -> bool {
+        #[cfg(feature = "unrestricted")]
+        {
+            self.all_manufacturer_data
+        }
+        #[cfg(not(feature = "unrestricted"))]
+        {
+            false
+        }
+    }
+
+    /// Whether `uuid` is within this grant. The blocklist is a separate check
+    /// and overrides this one.
+    pub fn permits(&self, uuid: &BluetoothUuid) -> bool {
+        self.permits_all_services() || self.services.contains(uuid)
+    }
+
+    /// Whether `company`'s advertisement data is within this grant. The
+    /// manufacturer blocklist is a separate check and overrides this one.
+    pub fn permits_company(&self, company: u16) -> bool {
+        self.permits_all_manufacturer_data() || self.manufacturer_data.contains(&company)
     }
 
     /// Permit access to a service.
@@ -120,7 +215,11 @@ impl Grant {
         }
         Self {
             services: self.services.union(&other.services).cloned().collect(),
+            #[cfg(feature = "unrestricted")]
+            all_services: self.all_services || other.all_services,
             manufacturer_data,
+            #[cfg(feature = "unrestricted")]
+            all_manufacturer_data: self.all_manufacturer_data || other.all_manufacturer_data,
         }
     }
 }
@@ -131,9 +230,51 @@ impl From<BTreeSet<BluetoothUuid>> for Grant {
     /// session is given the allowlist the caller declared up front and no
     /// manufacturer data at all.
     fn from(services: BTreeSet<BluetoothUuid>) -> Self {
-        Self {
-            services,
-            manufacturer_data: Vec::new(),
+        let mut grant = Self::new();
+        grant.services = services;
+        grant
+    }
+}
+
+/// The services a device's grant reaches, as something answerable.
+///
+/// Discovery returns whatever the device has, and the caller has to drop what
+/// the grant does not cover. Nearly always that is a set membership test —
+/// but a wildcard grant —
+#[cfg_attr(feature = "unrestricted", doc = "[`Grant::all_services`],")]
+#[cfg_attr(not(feature = "unrestricted"), doc = "`Grant::all_services`,")]
+/// under the `unrestricted` feature — covers services whose UUIDs nobody knew
+/// to put in a set, and the test still has to come out `true`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AllowedServices {
+    /// Every service on the device. The blocklist still applies on top.
+    All,
+    /// Only these, which is what `request_device` grants.
+    Only(BTreeSet<BluetoothUuid>),
+}
+
+impl AllowedServices {
+    /// Whether `uuid` is covered.
+    pub fn contains(&self, uuid: &BluetoothUuid) -> bool {
+        match self {
+            Self::All => true,
+            Self::Only(set) => set.contains(uuid),
+        }
+    }
+
+    /// Whether this covers every service, rather than a named set.
+    pub fn is_all(&self) -> bool {
+        matches!(self, Self::All)
+    }
+
+    /// The named services, or `None` when every service is covered.
+    ///
+    /// For a caller that wants to *list* the allowlist rather than test
+    /// against it — printing a grant, say.
+    pub fn named(&self) -> Option<&BTreeSet<BluetoothUuid>> {
+        match self {
+            Self::All => None,
+            Self::Only(set) => Some(set),
         }
     }
 }
@@ -320,7 +461,7 @@ impl<T> DeviceRegistry<T> {
 
     /// The per-device allowlist from `request_device`.
     pub fn check_allowed(&self, id: &str, uuid: &BluetoothUuid) -> Result<()> {
-        if self.get(id, |d| d.allowed.services.contains(uuid))? {
+        if self.get(id, |d| d.allowed.permits(uuid))? {
             Ok(())
         } else {
             Err(Error::Security(format!(
@@ -330,8 +471,20 @@ impl<T> DeviceRegistry<T> {
     }
 
     /// What this device was granted access to.
-    pub fn allowed_services(&self, id: &str) -> Result<BTreeSet<BluetoothUuid>> {
-        self.get(id, |d| d.allowed.services.clone())
+    ///
+    /// A set is not enough on its own: a grant can name every service rather
+    /// than a list of them, and a caller handed a set has no way to say so —
+    /// it would filter discovery down to the empty set and report a device
+    /// with nothing on it. [`AllowedServices`] answers `contains` for both
+    /// shapes, so the filtering call sites cannot get this wrong.
+    pub fn allowed_services(&self, id: &str) -> Result<AllowedServices> {
+        self.get(id, |d| {
+            if d.allowed.permits_all_services() {
+                AllowedServices::All
+            } else {
+                AllowedServices::Only(d.allowed.services.clone())
+            }
+        })
     }
 
     /// The company identifiers this device's grant covers.
@@ -492,7 +645,7 @@ macro_rules! forward_to_registry {
         pub fn allowed_services(
             &self,
             id: &str,
-        ) -> $crate::error::Result<std::collections::BTreeSet<$crate::uuid::BluetoothUuid>> {
+        ) -> $crate::error::Result<$crate::registry::AllowedServices> {
             self.devices.allowed_services(id)
         }
 
@@ -527,6 +680,19 @@ mod tests {
     use super::*;
     use crate::uuid::services;
     use futures_executor::block_on;
+
+    /// A grant of exactly these services and company identifiers.
+    ///
+    /// Built by assignment rather than as a struct literal: `Grant` carries two
+    /// more fields under the `unrestricted` feature and neither without it, so
+    /// a literal is either incomplete or redundant depending on how the crate
+    /// was compiled.
+    fn grant_of(services: &[BluetoothUuid], companies: &[u16]) -> Grant {
+        let mut grant = Grant::new();
+        grant.services = services.iter().copied().collect();
+        grant.manufacturer_data = companies.to_vec();
+        grant
+    }
 
     fn registry() -> DeviceRegistry<u32> {
         let registry = DeviceRegistry::default();
@@ -655,24 +821,12 @@ mod tests {
         registry.insert(
             "dev",
             None,
-            Grant {
-                services: [battery, info].into_iter().collect(),
-                manufacturer_data: vec![0x004C],
-            },
+            grant_of(&[battery, info], &[0x004C]),
             false,
             (),
         );
         // The same device again, asking for less.
-        registry.insert(
-            "dev",
-            None,
-            Grant {
-                services: [battery].into_iter().collect(),
-                manufacturer_data: vec![],
-            },
-            false,
-            (),
-        );
+        registry.insert("dev", None, grant_of(&[battery], &[]), false, ());
 
         assert!(
             registry.check_allowed("dev", &info).is_ok(),
@@ -697,10 +851,7 @@ mod tests {
     #[test]
     fn a_re_grant_does_not_revive_stale_handles() {
         let registry = DeviceRegistry::<()>::default();
-        let grant = || Grant {
-            services: [BluetoothUuid::from_u16(0x180F)].into_iter().collect(),
-            manufacturer_data: vec![],
-        };
+        let grant = || grant_of(&[BluetoothUuid::from_u16(0x180F)], &[]);
 
         registry.insert("dev", None, grant(), true, ());
         let captured = registry.generation("dev").unwrap();
@@ -735,5 +886,71 @@ mod tests {
         assert!(registry.remove("AA:BB").is_some());
         assert!(registry.ids().is_empty());
         assert!(registry.remove("AA:BB").is_none());
+    }
+
+    /// The point of the escape hatch: a service the grant could not have named,
+    /// because a 128-bit vendor UUID is not knowable before the device is read.
+    #[cfg(feature = "unrestricted")]
+    #[test]
+    fn an_unrestricted_grant_reaches_a_service_nobody_named() {
+        let registry = DeviceRegistry::<()>::default();
+        let vendor = BluetoothUuid::parse("f000aa00-0451-4000-b000-000000000000").unwrap();
+
+        registry.insert("dev", None, Grant::unrestricted(), false, ());
+
+        assert!(registry.check_allowed("dev", &vendor).is_ok());
+        assert!(registry.allowed_services("dev").unwrap().is_all());
+        assert!(registry.allowed_services("dev").unwrap().contains(&vendor));
+        // It is a wildcard, not a set, so there is no list to hand back.
+        assert!(registry.allowed_services("dev").unwrap().named().is_none());
+    }
+
+    /// Widening is the only direction a permission moves, and the flag is part
+    /// of the permission.
+    #[cfg(feature = "unrestricted")]
+    #[test]
+    fn a_wildcard_survives_a_narrower_re_grant() {
+        let narrow = Grant::new()
+            .service(BluetoothUuid::from_u16(0x180F))
+            .unwrap();
+
+        assert!(Grant::unrestricted().union(&narrow).permits_all_services());
+        assert!(narrow.union(&Grant::unrestricted()).permits_all_services());
+        assert!(!narrow.union(&narrow).permits_all_services());
+    }
+
+    /// The hatch opens the allowlist and nothing else.
+    #[cfg(feature = "unrestricted")]
+    #[test]
+    fn an_unrestricted_grant_is_still_subject_to_the_blocklist() {
+        // HID — the first entry in the vendored registry, and the reason the
+        // blocklist exists: reaching it would make a keylogger.
+        let hid = BluetoothUuid::from_u16(0x1812);
+        assert!(
+            crate::blocklist::is_blocked(&hid),
+            "the vendored blocklist must still block HID"
+        );
+
+        // The grant says yes, because a wildcard says yes to everything...
+        assert!(Grant::unrestricted().permits(&hid));
+        // ...and the blocklist, which is not a permission, still says no. The
+        // two checks are separate everywhere a service is reached:
+        // `get_primary_service` guards on the blocklist before the grant, and
+        // `get_primary_services` drops blocklisted attributes from discovery.
+        assert!(crate::blocklist::is_blocked(&hid));
+    }
+
+    /// Without the feature there is no way to express it, and the default is
+    /// the allowlist it always was.
+    #[test]
+    fn a_plain_grant_permits_only_what_it_names() {
+        let battery = BluetoothUuid::from_u16(0x180F);
+        let grant = Grant::new().service(battery).unwrap();
+
+        assert!(grant.permits(&battery));
+        assert!(!grant.permits(&BluetoothUuid::from_u16(0x180A)));
+        assert!(!grant.permits_all_services());
+        assert!(!grant.permits_all_manufacturer_data());
+        assert!(!Grant::default().permits(&battery));
     }
 }

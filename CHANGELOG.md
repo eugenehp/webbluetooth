@@ -1,6 +1,133 @@
 # Changelog
 
-## 0.0.1 — unreleased
+## 0.0.2 — unreleased
+
+### Bluetooth Classic, and the transports a browser has no word for
+
+The native extension surface now also has opt-in `classic`, `rfcomm`, and
+`classic-l2cap` features. The shared Classic layer validates Bluetooth
+addresses, Class of Device values, RFCOMM channels, Classic L2CAP PSMs, and
+security levels. Linux provides RFCOMM and Classic L2CAP byte streams; these
+are deliberately outside the `public` Web Bluetooth subset. Android RFCOMM
+service-record connections are also available through `BluetoothSocket`; the
+Android Classic L2CAP and server paths remain future work. Windows RFCOMM is
+available through the opt-in feature using WinSock `AF_BTH`.
+
+The native transport coverage has since expanded: Linux, Android, and Windows
+provide RFCOMM client/server listeners; Linux, Android, and Windows provide
+Classic L2CAP client/server listeners; Linux and Android expose bonded Classic
+device enumeration and service UUID lookup; and Linux exposes raw ACL and
+SCO/eSCO HCI sockets behind separate features. SDP records can be parsed into
+service UUIDs, RFCOMM channels, and L2CAP PSMs without coupling the parser to a
+particular operating system.
+
+Profile transport convenience APIs are now aligned where native support exists:
+Android and Windows can open RFCOMM connections by shared SIG profile UUIDs,
+and Linux can register RFCOMM or Classic L2CAP profile endpoints through BlueZ
+`ProfileManager1`. These APIs expose transport lifecycle only; profile-specific
+negotiation and codecs remain separate implementations.
+
+The per-crate checks now reach all of this. 0.0.1 had no `profiles` feature, so
+`--all-features` never turned one on and the SDP service-record builders behind
+`ProfileManager1` had never been compiled at all — nor had a channel-pinned
+RFCOMM profile's accept path, which dropped every incoming connection, nor the
+Classic L2CAP listener, which named a constructor that does not exist. None of
+that ever shipped. It is recorded here because the check that catches it is the
+part worth having.
+
+### The parity oracle had been missing the scanning half
+
+`./scripts/update.sh surface` fetched `w3c/webref`'s `ed/idl/web-bluetooth.idl`,
+which upstream has since split in two and renamed — confusingly, the halves
+landed as `bluetooth-scanning.idl` (the core API) and `bluetooth.idl` (the
+scanning extension). The old path now 404s, and the refresh is what surfaced
+that the vendored snapshot had only ever held one of the two documents.
+
+So the surface goes from 106 members to **130**. The 24 that were absent are the
+whole LE Scanning API — `requestLEScan`, `BluetoothLEScan`, the constructible
+`BluetoothLEScanFilter`, `BluetoothDataFilter`, and the scanning permission
+descriptors — and the 0.0.1 claim that "every one of the 106 members its IDL
+declares" was accounted for was therefore measuring against an oracle that did
+not declare all of them.
+
+Nothing was actually missing from the library: 20 of the 24 map onto
+`Bluetooth::request_le_scan`, `LeScan` and `DeviceFilter`, which have been here
+since 0.0.1, and the other four are the Permissions API, excluded like the rest
+of it. The accounting now reads **101 implemented, 29 excluded**, and
+`spec-surface.py` fetches both documents with a marker check per half — a rename
+upstream is a 404 that stops the script, but a reshuffle would have been silent
+and would simply have shrunk the surface again.
+
+The other four oracles refreshed byte-identically: both CG blocklists, the three
+assigned-number registries, MDN's status data, and the 697 WinRT interface IIDs.
+
+### Grants, and an escape hatch from them
+
+**An `unrestricted` feature, for the one caller an allowlist cannot serve.**
+`Grant::all_services()` grants every service on a device rather than a named
+set, and `Grant::unrestricted()` adds every company identifier's advertisement
+data. Off by default, gated behind a feature, and documented as outside the Web
+Bluetooth model.
+
+The reason it has to exist: the allowlist is there to stop a *page* learning
+more about a device than the user agreed to, and it works because a page knows
+which services it came for. A general explorer does not — the interesting
+services on a device are the vendor's own 128-bit ones, and reading their UUIDs
+off the device is the whole point, so there is nothing to put in the list. With
+only the allowlist, `get_primary_services(None)` correctly returns an empty set
+and the device looks like it has nothing on it.
+
+**Raw advertising bytes.** `Advertisement::raw` carries the packet as it came
+off the air, where the transport hands it over — which only a raw HCI socket
+does, so it is populated by the `linux-hci` backend and `None` everywhere else.
+Those bytes contain every company's manufacturer data whole, which is exactly
+what `restrict_to` exists to filter, so they are withheld from any grant that
+does not already permit all manufacturer data.
+`RequestDeviceOptions::accept_all_manufacturer_data` and the matching
+`LeScanOptions` builder are how a scanner opts in, behind the same
+`unrestricted` feature.
+
+The blocklist is not part of this and still applies: `get_primary_service`
+refuses a blocklisted UUID under this grant exactly as under any other, and
+discovery still filters blocklisted attributes out rather than reporting them.
+`allowed_services` now returns an `AllowedServices` rather than a `BTreeSet`,
+because a set cannot express "all of them" and a caller handed one would
+silently filter discovery down to nothing — the enum answers `contains` for
+both shapes, so the filtering call sites cannot get it wrong. In the grant
+store a wildcard is written `*`, which parses as neither a UUID nor a company
+number, so a build without the feature reads such a record back as a grant of
+nothing rather than inheriting a permission it cannot represent.
+
+**Breaking:** `allowed_services` returns `AllowedServices` rather than
+`BTreeSet<BluetoothUuid>`. A caller that matched on the set should call
+`contains` on the enum instead.
+
+### Two applications, in the repository
+
+`apps/webbluetooth-explorer` is the first: a GATT explorer — scan, connect,
+browse, read, write, subscribe — written against this API, running the same
+source on macOS, Linux, Windows, iOS and Android. It exists partly to be useful
+and partly because a library is only as good as the first real program written
+against it; the `unrestricted` feature above is what that program turned up,
+along with `Advertisement::raw` and `accept_all_manufacturer_data`.
+
+Writing it against nRF Connect as a reference also produced the honest list of
+what this API cannot yet do, which is short and specific: an `Advertising` that
+carries only a local name and service UUIDs (no TX power, scan response,
+interval or timeout), reliable write exposed as a property flag with no
+operation behind it, and no way to refresh a GATT cache or delete a bond.
+
+`apps/browser` is the second: a web browser whose pages get a real
+`navigator.bluetooth`. WKWebView has no Web Bluetooth, so this wraps it in a
+Tauri shell, injects a shim ahead of every page's own scripts, and implements
+the API over this crate — macOS, iOS and Android. The device chooser, the
+scanning prompt and the permissions view each keep their own window, on iOS as
+well as on the desktop, so a page cannot paint over the thing that grants it
+access or read the list of devices offered to it.
+
+Neither app is published; both are `publish = false`.
+
+## 0.0.1 — 2026-09-21
 
 First release.
 
@@ -275,3 +402,5 @@ Windows has no radio in any of its checks, and says so.
 
 Depend on `webbluetooth`. The rest are public because they have to name each
 other's types.
+
+

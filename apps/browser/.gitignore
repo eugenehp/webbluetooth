@@ -1,0 +1,30 @@
+# Cargo's output. This crate is its own workspace root, so it has its own.
+/target
+
+# Written by `tauri-build` on every build from `tauri.conf.json`,
+# `capabilities/` and `permissions/`. Regenerated, never edited.
+/gen/schemas
+
+# The mobile projects are *not* ignored: `gen/apple/project.yml`,
+# `gen/apple/webbluetooth-browser_iOS/Info.plist`,
+# `gen/android/app/src/main/AndroidManifest.xml` and `MainActivity.kt` all
+# carry edits without which Bluetooth does not work — see the README. Only
+# their build products are.
+/gen/apple/Externals
+/gen/apple/build
+# The Xcode project is generated from `project.yml` by xcodegen, which
+# `tauri ios init` runs; `xcodegen generate` inside `gen/apple` recreates it
+# from the spec alone. Tracking it would mean tracking two copies of every
+# setting, and Xcode writes the developer's own signing team back into it the
+# first time the signing tab is opened.
+/gen/apple/*.xcodeproj
+/gen/apple/*.xcworkspace
+# Written by cargo-mobile2/Tauri per machine.
+/gen/apple/.tauri
+/gen/android/.tauri
+/gen/android/.idea
+/gen/android/app/build
+/gen/android/build
+/gen/android/.gradle
+/gen/android/app/src/main/jniLibs
+/gen/android/app/src/main/assets

@@ -100,13 +100,19 @@ vendored from the Community Group registry, so a characteristic the standard
 forbids is filtered out of discovery rather than returned and refused.
 
 Beyond the standard, because the platforms offer them: the peripheral role,
-L2CAP channels, connection parameters and PHY, adapter selection, and iOS state
-preservation. See the README.
+L2CAP channels, RFCOMM on Linux, connection parameters and PHY, adapter
+selection, negotiated ATT MTU access, descriptor offset operations, and iOS
+state preservation. See the README.
 
 ## What you give up
 
-btleplug supports Bluetooth Classic on some platforms; this is LE only, as Web
-Bluetooth is. And if your program genuinely wants every characteristic of an
-unknown device without declaring anything up front, the allowlist is in your
-way by design — `sensors.rs` shows the shape that replaces it, which is to take
-the services as configuration.
+The default Web Bluetooth-shaped API is LE/GATT only. This crate can expose
+native Bluetooth Classic functionality separately with the `classic` feature,
+and Linux RFCOMM streams with the `rfcomm` feature. Those extensions are not
+part of `webbluetooth::public` and are not portable to browser or Apple
+CoreBluetooth targets.
+
+If your program genuinely wants every characteristic of an unknown device
+without declaring anything up front, the Web Bluetooth service allowlist is in
+your way by design — `sensors.rs` shows the shape that replaces it, which is to
+take the services as configuration.

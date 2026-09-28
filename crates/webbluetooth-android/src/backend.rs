@@ -31,6 +31,9 @@
 
 use crate::ble::{self, Callback};
 use crate::bluetooth::{Event, EventSink, Ref};
+// `Env` is named only by the Classic discovery receiver.
+#[cfg(feature = "classic")]
+use crate::jni::Env;
 use crate::jni::{JObject, Vm};
 use crate::runtime::Runtime;
 use futures_channel::oneshot;
@@ -146,6 +149,8 @@ pub struct Inner {
     /// still resolvable after it returns.
     sightings: Mutex<HashMap<String, Option<String>>>,
     scan_callback: Mutex<Option<Callback>>,
+    #[cfg(feature = "classic")]
+    classic_receiver: Mutex<Option<Callback>>,
 }
 
 struct Sink(Weak<Inner>);
@@ -184,6 +189,8 @@ impl Inner {
                 hub: ScanHub::new(),
                 sightings: Mutex::new(HashMap::new()),
                 scan_callback: Mutex::new(None),
+                #[cfg(feature = "classic")]
+                classic_receiver: Mutex::new(None),
             }
         })
     }
@@ -201,6 +208,43 @@ impl Inner {
 
     fn handle(&self, event: Event) {
         match event {
+            #[cfg(feature = "classic")]
+            Event::ClassicDiscovered {
+                address,
+                name,
+                class_of_device,
+            } => {
+                if self.hub.is_watching() {
+                    self.sightings
+                        .lock()
+                        .unwrap()
+                        .insert(address.clone(), name.clone());
+                    let advertisement = Advertisement {
+                        class_of_device: class_of_device
+                            .map(webbluetooth_core::ClassOfDevice::from_raw),
+                        local_name: name,
+                        tx_power: None,
+                        appearance: None,
+                        is_connectable: Some(true),
+                        service_uuids: Vec::new(),
+                        overflow_service_uuids: Vec::new(),
+                        solicited_service_uuids: Vec::new(),
+                        manufacturer_data: HashMap::new(),
+                        service_data: HashMap::new(),
+                        rssi: webbluetooth_core::filter::UNAVAILABLE_RSSI,
+                        // A Classic inquiry result carries no LE advertising
+                        // data at all.
+                        raw: None,
+                    };
+                    self.hub.publish(
+                        &address,
+                        advertisement.local_name.as_deref(),
+                        &advertisement,
+                    );
+                }
+            }
+            #[cfg(feature = "classic")]
+            Event::ClassicDiscoveryFinished => {}
             Event::Discovered {
                 address,
                 name,
@@ -208,12 +252,19 @@ impl Inner {
                 service_uuids,
                 manufacturer_data,
                 service_data,
+                class_of_device,
                 connectable,
             } => {
+                // Only the `classic` arm of the advertisement below reads it.
+                #[cfg(not(feature = "classic"))]
+                let _ = class_of_device;
                 if !self.hub.is_watching() {
                     return;
                 }
                 let advertisement = Advertisement {
+                    #[cfg(feature = "classic")]
+                    class_of_device: class_of_device
+                        .map(webbluetooth_core::ClassOfDevice::from_raw),
                     local_name: name.clone(),
                     tx_power: None,
                     // ScanRecord has no accessor for it.
@@ -231,6 +282,9 @@ impl Inner {
                         .filter_map(|(u, d)| Some((BluetoothUuid::parse(&u).ok()?, d)))
                         .collect(),
                     rssi,
+                    // Reachable through `ScanRecord.getBytes()`, which this
+                    // backend's JNI surface does not yet forward.
+                    raw: None,
                 };
                 self.sightings
                     .lock()
@@ -479,6 +533,8 @@ impl Inner {
             let _ = ble::stop_scan(env, scanner, callback.as_ptr());
         }
         if !on {
+            #[cfg(feature = "classic")]
+            self.stop_classic_discovery(env)?;
             return Ok(());
         }
 
@@ -502,7 +558,37 @@ impl Inner {
         ble::start_scan(env, scanner, callback.as_ptr(), &scan_services)
             .map_err(|e| Error::Network(format!("could not start scanning: {e}")))?;
         *self.scan_callback.lock().unwrap() = Some(callback);
+        #[cfg(feature = "classic")]
+        self.start_classic_discovery(runtime)?;
         Ok(())
+    }
+
+    #[cfg(feature = "classic")]
+    fn start_classic_discovery(self: &Arc<Self>, runtime: &'static Runtime) -> Result<()> {
+        let env = runtime.env().map_err(jni_error)?;
+        let adapter = self.ble_adapter()?;
+        let callback = Callback::new(
+            runtime,
+            "dev.webbluetooth.ClassicDiscoveryReceiver",
+            crate::classic_discovery_receiver_dex(),
+            &crate::bluetooth::classic_discovery_natives(),
+            Arc::new(Sink(Arc::downgrade(self))),
+        )
+        .map_err(jni_error)?;
+        let filter = ble::classic_discovery_filter(env).map_err(jni_error)?;
+        ble::register_classic_receiver(env, callback.as_ptr(), filter).map_err(jni_error)?;
+        ble::start_classic_discovery(env, adapter.as_ptr()).map_err(jni_error)?;
+        *self.classic_receiver.lock().unwrap() = Some(callback);
+        Ok(())
+    }
+
+    #[cfg(feature = "classic")]
+    fn stop_classic_discovery(&self, env: Env) -> Result<()> {
+        if let Some(callback) = self.classic_receiver.lock().unwrap().take() {
+            let _ = ble::unregister_classic_receiver(env, callback.as_ptr());
+        }
+        let adapter = self.ble_adapter()?;
+        ble::cancel_classic_discovery(env, adapter.as_ptr()).map_err(jni_error)
     }
 
     pub async fn request_device(
@@ -777,6 +863,28 @@ impl Inner {
             },
         );
         Ok(id.to_owned())
+    }
+
+    #[cfg(feature = "classic")]
+    pub async fn bonded_classic_devices(&self) -> Result<Vec<String>> {
+        let runtime = self.runtime()?;
+        let env = runtime.env().map_err(jni_error)?;
+        let adapter = self.ble_adapter()?;
+        adapter.bonded_device_addresses(env).map_err(jni_error)
+    }
+
+    #[cfg(feature = "classic")]
+    pub async fn classic_service_uuids(&self, id: &str) -> Result<Vec<BluetoothUuid>> {
+        let runtime = self.runtime()?;
+        let env = runtime.env().map_err(jni_error)?;
+        let adapter = self.ble_adapter()?;
+        let device = adapter.remote_device(env, id).map_err(jni_error)?;
+        Ok(adapter
+            .device_service_uuids(env, device)
+            .map_err(jni_error)?
+            .into_iter()
+            .filter_map(|uuid| BluetoothUuid::parse(&uuid).ok())
+            .collect())
     }
 
     async fn gatt_lock(&self, id: &str) -> Result<futures_util::lock::OwnedMutexGuard<()>> {
@@ -1096,6 +1204,16 @@ impl Inner {
         Ok(())
     }
 
+    pub async fn request_mtu(&self, id: &str, mtu: u16) -> Result<()> {
+        let _guard = self.gatt_lock(id).await?;
+        let env = self.runtime()?.env().map_err(jni_error)?;
+        let gatt = self.gatt(id)?;
+        if !ble::request_mtu(env, gatt.as_ptr(), mtu as i32).map_err(jni_error)? {
+            return Err(Error::Network("requestMtu was refused".into()));
+        }
+        Ok(())
+    }
+
     pub fn max_write_len(&self, id: &str, _write_type: WriteType) -> Result<usize> {
         // Three bytes of ATT header come off whatever MTU was negotiated.
         Ok(self.devices.get(id, |d| d.inner.mtu)?.max(23) as usize - 3)
@@ -1113,6 +1231,84 @@ impl Inner {
             ));
         }
         Ok(socket)
+    }
+
+    #[cfg(feature = "rfcomm")]
+    pub async fn rfcomm_target(
+        &self,
+        id: &str,
+        service_uuid: &str,
+    ) -> Result<(crate::jni::JObject, String)> {
+        let runtime = self.runtime()?;
+        let env = runtime.env().map_err(jni_error)?;
+        let device = self.devices.get(id, |d| d.inner.device.clone())?;
+        let socket =
+            ble::create_rfcomm_socket(env, device.as_ptr(), service_uuid).map_err(jni_error)?;
+        if socket.is_null() {
+            return Err(Error::NotSupported(
+                "createRfcommSocketToServiceRecord returned no socket".into(),
+            ));
+        }
+        let peer = ble::device_address(env, device.as_ptr()).unwrap_or_default();
+        Ok((socket, peer))
+    }
+
+    #[cfg(feature = "classic-l2cap")]
+    pub async fn classic_l2cap_target(
+        &self,
+        id: &str,
+        psm: u16,
+    ) -> Result<(crate::jni::JObject, String)> {
+        let runtime = self.runtime()?;
+        let env = runtime.env().map_err(jni_error)?;
+        let device = self.devices.get(id, |d| d.inner.device.clone())?;
+        let socket = ble::create_classic_l2cap_socket(env, device.as_ptr(), psm as i32)
+            .map_err(jni_error)?;
+        if socket.is_null() {
+            return Err(Error::NotSupported(
+                "createL2capSocket is unavailable on this Android release".into(),
+            ));
+        }
+        let peer = ble::device_address(env, device.as_ptr()).unwrap_or_default();
+        Ok((socket, peer))
+    }
+
+    #[cfg(feature = "rfcomm")]
+    pub async fn listen_rfcomm(
+        &self,
+        name: &str,
+        service_uuid: &str,
+    ) -> Result<crate::rfcomm::RfcommListener> {
+        let runtime = self.runtime()?;
+        let env = runtime.env().map_err(jni_error)?;
+        let adapter = self.ble_adapter()?;
+        let socket =
+            ble::listen_rfcomm(env, adapter.as_ptr(), name, service_uuid).map_err(jni_error)?;
+        let Some(server) = crate::bluetooth::Ref::new(env, socket) else {
+            return Err(Error::Network("the RFCOMM server socket vanished".into()));
+        };
+        crate::rfcomm::RfcommListener::new(server, 0).map_err(Error::Network)
+    }
+
+    #[cfg(feature = "classic-l2cap")]
+    pub async fn listen_classic_l2cap(
+        &self,
+        secure: bool,
+    ) -> Result<crate::classic_l2cap::ClassicL2capListener> {
+        let runtime = self.runtime()?;
+        let env = runtime.env().map_err(jni_error)?;
+        let adapter = self.ble_adapter()?;
+        let socket = ble::listen_l2cap(env, adapter.as_ptr(), secure).map_err(jni_error)?;
+        if socket.is_null() {
+            return Err(Error::NotSupported(
+                "listenUsingL2capChannel is unavailable — it needs API 29 or newer".into(),
+            ));
+        }
+        let psm = ble::server_socket_psm(env, socket).map_err(jni_error)? as u16;
+        let Some(server) = crate::bluetooth::Ref::new(env, socket) else {
+            return Err(Error::Network("the L2CAP server socket vanished".into()));
+        };
+        crate::classic_l2cap::ClassicL2capListener::new(server, psm).map_err(Error::Network)
     }
 }
 

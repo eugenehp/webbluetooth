@@ -43,7 +43,7 @@ is? Turn on the `uuid` feature and pass them straight to `get_primary_service`
 and the rest:
 
 ```toml
-webbluetooth = { version = "0.0.1", features = ["uuid"] }
+webbluetooth = { version = "0.0.2", features = ["uuid"] }
 ```
 
 ## Start here
@@ -67,6 +67,73 @@ problem rather than anything to do with the radio.
 Coming from [btleplug](https://github.com/deviceplug/btleplug)?
 [MIGRATING.md](MIGRATING.md) is the call-by-call mapping, taken from a real
 port rather than from reading two API docs side by side.
+
+## Apps
+
+Two applications in this repository are built **on** the crate rather than
+beside it. Both are `publish = false` — they are programs, not libraries — and
+both exist because they push on the API in ways an example cannot.
+
+### WebBluetoothExplorer — [`apps/webbluetooth-explorer`](apps/webbluetooth-explorer)
+
+A GATT explorer: scan, connect, walk the tree, read and write characteristics,
+subscribe to notifications.
+
+```sh
+cargo run -p webbluetooth-explorer --release
+apps/webbluetooth-explorer/scripts/bundle-macos.sh   # a signed .app, so TCC remembers
+```
+
+A reimplementation of [Bluetility](https://github.com/jnross/Bluetility) — a
+macOS-only Cocoa app — on top of this crate in
+[egui](https://github.com/emilk/egui), so one source tree runs on macOS, Linux,
+Windows, iOS and Android. Three panes over a log: everything advertising with a
+live signal meter, the selected device as a collapsing service tree, and the
+selected characteristic decoded every way its length allows. Below about forty
+line-heights of width it shows one pane at a time, so a phone in portrait gets
+the same window rearranged rather than a reduced one.
+
+It is also the **one caller of the `unrestricted` feature**, and the reason that
+feature exists. Web Bluetooth grants a *named list* of services on purpose; an
+explorer is on the other side of that boundary, because the interesting services
+on a device are the vendor's own 128-bit ones and their UUIDs cannot be named in
+advance — reading them off the device is the entire point.
+`Grant::all_services()` is that escape hatch, off by default and deliberately
+awkward to reach. The GATT blocklist is *not* part of it and still applies: HID
+and unsigned firmware update stay hidden here exactly as they would in a
+browser.
+
+macOS is the target that has been run against real radios. The other four
+compile and are covered by the tests — including a headless renderer that
+asserts on pixels and drives the UI through its accessibility tree — which
+checks the plumbing and is not a substitute for a radio.
+
+### WebBluetooth Browser — [`apps/browser`](apps/browser)
+
+A web browser whose pages get a real `navigator.bluetooth`.
+
+```sh
+cd apps/browser
+cargo run                 # macOS
+WBB_SELFTEST=1 cargo run  # check it, without a person watching
+tauri ios dev             # a device, once APPLE_DEVELOPMENT_TEAM is exported
+tauri android dev
+```
+
+WKWebView has no Web Bluetooth. This wraps it in a [Tauri](https://tauri.app)
+shell, injects a shim ahead of every page's own scripts, and implements the API
+over this crate — so a site written against the standard works here unmodified.
+
+The security boundary survives the port, which is the part worth reading the
+app's own README for: the device chooser, the scanning prompt and the
+permissions view each keep their **own window**, on iOS as well as on the
+desktop, so a page cannot paint over the thing that grants it access, cannot
+read the list of devices offered to it, and cannot enumerate what other origins
+hold.
+
+It is its own cargo workspace with its own lockfile — hence the `cd` — and its
+iOS build reads the signing team from `APPLE_DEVELOPMENT_TEAM` in the
+environment rather than carrying anyone's team identifier in the repository.
 
 ## Authorization, which is the part that bites
 
@@ -213,7 +280,7 @@ ask it.
 extracted by `w3c/webref` straight from the standard, and writes every member
 to `crates/webbluetooth-core/spec/web-bluetooth-surface.txt`.
 `tests/web_bluetooth_surface.rs` then
-requires each of the 106 to be mapped to something here or excluded on purpose
+requires each of the 130 to be mapped to something here or excluded on purpose
 with the reason recorded — and it checks the mapped item *exists*, because a
 mapping table is trivially easy to fill in optimistically.
 
@@ -221,17 +288,17 @@ When the standard gains a member, the generated file changes and the test fails
 until somebody decides what to do about it.
 
 ```
-Web Bluetooth surface: 81 implemented, 25 excluded
+Web Bluetooth surface: 101 implemented, 29 excluded
 ```
 
-The 25 are not gaps. Every one is something that cannot exist outside a
+The 29 are not gaps. Every one is something that cannot exist outside a
 browser, and the test enforces that the reason names one of a short list of
 accepted categories rather than letting "excluded" become a place to put
 anything inconvenient:
 
 | | |
 |---|---|
-| 10 | the Permissions API — a browser's grant store |
+| 14 | the Permissions API — a browser's grant store |
 | 12 | `ValueEvent` and `BluetoothAdvertisingEventInit` — DOM event types a page constructs; streams carry values here |
 | 1 | `Bluetooth.referringDevice` — nothing outside a browser has a referrer |
 | 1 | `WatchAdvertisementsOptions.signal` — an `AbortSignal`; dropping the stream stops the watch |
@@ -722,6 +789,45 @@ Runtime-agnostic. Built on `futures-channel` / `futures-util`, no tokio
 dependency — works on any executor, including `futures_executor::block_on`.
 Timers run on one background thread with a deadline heap.
 
+## API modes and transports
+
+The root API follows Web Bluetooth's LE/GATT model. Applications that need a
+clearly named standard-compatible subset can enable the `public` feature and
+import from `webbluetooth::public`:
+
+```toml
+[dependencies]
+webbluetooth = { version = "0.0.2", features = ["public"] }
+```
+
+Native extensions are opt-in. The `classic` feature enables Bluetooth Classic
+capability reporting, while the separate `rfcomm` and `classic-l2cap` features
+imply `classic` and provide Linux RFCOMM and Classic L2CAP byte streams.
+These transports are independent of BLE L2CAP and are not part of
+`webbluetooth::public`.
+
+Apple Classic is isolated behind the separate `apple-classic` feature. It is a
+macOS-only backend boundary for a future IOBluetooth implementation and is not
+enabled by the general `classic` feature.
+
+```toml
+[dependencies]
+webbluetooth = { version = "0.0.2", features = ["public", "rfcomm"] }
+```
+
+`BluetoothDevice::mtu()` reports the negotiated ATT MTU. Where the platform
+allows an explicit request, `BluetoothDevice::request_mtu()` asks for one and
+returns the current value; other platforms report `Error::NotSupported`.
+Descriptor handles provide whole-value `read_value()` and `write_value()` plus
+portable offset-aware `read_value_at_offset()` and `write_value_at_offset()`
+operations.
+
+Raw ACL and SCO/eSCO packet sockets are Linux-only because Android and Windows
+do not expose equivalent user-mode HCI controller APIs to ordinary
+applications. The `raw-acl` and `raw-sco` features therefore compile raw
+transports only on Linux and report unavailable elsewhere through protocol
+capabilities.
+
 ## Platforms
 
 Apple, Linux, Android and Windows, from one API. Apple is verified by
@@ -934,7 +1040,10 @@ calls back.
 
 ## Status
 
-**0.0.1 — the first release.**
+**0.0.2 — unreleased.** 0.0.1 is the published version; what is new since it is
+in [CHANGELOG.md](CHANGELOG.md), and the short form is Bluetooth Classic and the
+native transports around it, the `unrestricted` feature and raw advertising
+bytes, and the two applications above.
 
 Six central-role backends and four peripheral ones, each presenting the same
 surface. Two tests check that by reading all ten as source, because only one is

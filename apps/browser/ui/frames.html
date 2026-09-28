@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Frame isolation check</title>
+  </head>
+  <body>
+    <!-- Used by `WBB_SELFTEST`. A same-origin child is the most permissive
+         case there is: the shim is injected into the main frame only, so if
+         even a child that shares this document's origin cannot see it, no
+         frame can. A cross-origin child would be the interesting case to a
+         reader, but nothing here could inspect it, and it would prove less. -->
+    <iframe id="child" src="frame-child.html" width="200" height="60"></iframe>
+  </body>
+</html>

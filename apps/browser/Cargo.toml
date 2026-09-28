@@ -1,0 +1,70 @@
+# Its own workspace root, deliberately.
+#
+# The repository root workspace lists `apps/bluetility`, which is being written
+# in parallel; while that manifest has no targets the whole workspace fails to
+# load, and nothing that inherits from it can build. A `[workspace]` table here
+# makes this crate a root of its own, so it builds regardless — and the path
+# dependency below still resolves `crates/webbluetooth`'s inherited fields from
+# the root manifest, which cargo reads without validating the other members.
+#
+# To fold it back in later: delete this table and add "apps/browser" to the
+# root `members`. Nothing else here depends on being separate.
+[workspace]
+
+[package]
+name        = "webbluetooth-browser"
+description = "A web browser that gives every site the real Web Bluetooth API, backed by webbluetooth"
+version     = "0.1.0"
+edition     = "2021"
+license     = "MIT"
+repository  = "https://github.com/eugenehp/webbluetooth"
+homepage    = "https://github.com/eugenehp/webbluetooth"
+authors     = ["Eugene Hauptmann"]
+rust-version = "1.94"
+# An application, not a library. Nothing here belongs on crates.io.
+publish = false
+
+# A library plus a thin binary: an iOS application links the staticlib and
+# calls `run()` from the generated Xcode project, so the implementation
+# cannot live in `main.rs`.
+[lib]
+name       = "webbluetooth_browser"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "webbluetooth-browser"
+path = "src/main.rs"
+
+[dependencies]
+# No `unrestricted`: a browser has to enforce the per-origin service allowlist
+# that `requestDevice` builds, which is the whole point of the permission model.
+webbluetooth = { path = "../../crates/webbluetooth" }
+
+# `unstable` is what exposes `Window::add_child`. The browser chrome and the
+# page are two webviews in one window, and a capability can then be scoped to
+# the chrome webview alone — see capabilities/.
+tauri = { version = "2.11", features = ["unstable", "devtools"] }
+
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures-util = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+futures-channel = { version = "0.3", features = ["std"] }
+url = "2"
+
+# Android has no ambient way to reach a JavaVM or a Context, and the
+# Bluetooth backend needs both. `ndk-context` is where the activity puts
+# them: tao fills it in before any of this runs.
+[target.'cfg(target_os = "android")'.dependencies]
+ndk-context = "0.1"
+
+# Only to point stdout at a file on a phone, where there is no console to
+# print to. See `selftest::capture_output`.
+[target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
+libc = "0.2"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[profile.release]
+lto = true
+codegen-units = 1

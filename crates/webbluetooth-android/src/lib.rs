@@ -15,9 +15,13 @@ pub mod peripheral_backend;
 
 pub mod ble;
 pub mod bluetooth;
+#[cfg(feature = "classic-l2cap")]
+pub mod classic_l2cap;
 pub mod dex;
 pub mod jni;
 pub mod l2cap;
+#[cfg(feature = "rfcomm")]
+pub mod rfcomm;
 pub mod runtime;
 
 use dex::DexBuilder;
@@ -35,6 +39,8 @@ pub fn dex_classes() -> Vec<(&'static str, Vec<u8>)> {
     vec![
         ("gatt", gatt_callback_dex()),
         ("scan", scan_callback_dex()),
+        #[cfg(feature = "classic")]
+        ("classic-discovery", classic_discovery_receiver_dex()),
         ("server", gatt_server_callback_dex()),
         ("advertise", advertise_callback_dex()),
     ]
@@ -68,6 +74,20 @@ pub fn scan_callback_dex() -> Vec<u8> {
     .native_method("onScanResult", "(ILandroid/bluetooth/le/ScanResult;)V")
     .native_method("onBatchScanResults", "(Ljava/util/List;)V")
     .native_method("onScanFailed", "(I)V")
+    .build()
+}
+
+/// `BroadcastReceiver` — Bluetooth Classic discovery.
+#[cfg(feature = "classic")]
+pub fn classic_discovery_receiver_dex() -> Vec<u8> {
+    DexBuilder::new(
+        &format!("{PACKAGE}/ClassicDiscoveryReceiver"),
+        "android/content/BroadcastReceiver",
+    )
+    .native_method(
+        "onReceive",
+        "(Landroid/content/Context;Landroid/content/Intent;)V",
+    )
     .build()
 }
 

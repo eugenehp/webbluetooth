@@ -58,17 +58,32 @@ pub mod adapter;
 pub mod address;
 pub mod backlog;
 pub mod blocklist;
+pub mod capabilities;
 pub mod chooser;
+/// Bluetooth Classic addresses, discovery vocabulary, and transport endpoints.
+#[cfg(feature = "classic")]
+pub mod classic;
 pub mod error;
 pub mod filter;
 pub mod gatt;
 pub mod grants;
 pub mod l2cap;
+#[cfg(feature = "le-audio")]
+pub mod le_audio;
+#[cfg(feature = "mesh")]
+pub mod mesh;
 /// The peripheral role's definitions: what a GATT server publishes.
 pub mod peripheral;
+#[cfg(feature = "profiles")]
+pub mod profiles;
+#[cfg(any(feature = "raw-acl", feature = "raw-sco", feature = "le-audio"))]
+pub mod raw;
 pub mod registry;
 pub mod restoration;
 pub mod scan;
+/// Bluetooth Classic SDP data elements and service records.
+#[cfg(feature = "classic")]
+pub mod sdp;
 pub mod state;
 pub mod timer;
 pub mod uuid;
@@ -79,12 +94,68 @@ mod uuid_interop;
 pub use adapter::{
     AdapterInfo, ConnectionParameters, ConnectionPhy, ConnectionPriority, Pairing, Phy,
 };
+pub use capabilities::{Protocol, ProtocolCapabilities};
 pub use chooser::{Candidate, Candidates, DeviceChooser};
+#[cfg(feature = "classic")]
+pub use classic::{
+    BluetoothAddress, ClassOfDevice, ClassicAddressError, ClassicDevice, ClassicPsm,
+    ClassicSecurity, RfcommChannel,
+};
 pub use error::{Authorization, Availability, Error, Result};
 pub use filter::{Advertisement, DataPrefix, DeviceFilter, RequestDeviceOptions};
 pub use gatt::{CharacteristicProperties, WriteType};
 pub use l2cap::{ChannelSink, Closed, L2capChannel, PlatformChannel, Psm};
+#[cfg(feature = "le-audio")]
+pub use le_audio::{CodecError, IsoConfiguration, IsoMetadata, IsoStream, Lc3Codec, Lc3Frame};
+#[cfg(feature = "mesh")]
+pub use mesh::{
+    MeshAddress, MeshNetworkPdu, NetworkHeader, ProvisioningEvent, ProvisioningFailure,
+    ProvisioningSession, ProvisioningState, ProvisioningTransitionError,
+};
+#[cfg(feature = "profiles")]
+pub use profiles::a2dp::{
+    negotiate as negotiate_a2dp, negotiate_sbc_capabilities, negotiate_sbc_parameters,
+    AvdtpCapabilitiesError, AvdtpDiscoverError, AvdtpEndpointType, AvdtpError, AvdtpMediaType,
+    AvdtpMessageType, AvdtpPacketType, AvdtpResponse, AvdtpResponseResult, AvdtpSbcCapability,
+    AvdtpServiceCategory, AvdtpSignalIdentifier, AvdtpSignalingPacket,
+    AvdtpStreamEndpointDescriptor, AvdtpStreamEndpointId, Capability as A2dpCapability,
+    Codec as A2dpCodec, Configuration as A2dpConfiguration,
+    NegotiationError as A2dpNegotiationError, SbcAllocation, SbcChannelMode, SbcConfiguration,
+    SbcFrame, SbcMediaError, SbcMediaPacket,
+};
+#[cfg(feature = "profiles")]
+pub use profiles::avrcp::{
+    absolute_volume, playback_status, Command as AvrcpCommand, Event as AvrcpEvent,
+    Metadata as AvrcpMetadata, PassThrough as AvrcpPassThrough, PlaybackStatus,
+};
+#[cfg(feature = "profiles")]
+pub use profiles::data::{
+    parse_obex_header, DunState, ObexError, ObexHeader, ObexOperation, ObexPacket, PanRole,
+};
+#[cfg(feature = "profiles")]
+pub use profiles::hfp::{
+    encode_command, AtError, AtLine, AtParser, CallCommand, CallInfo, CallState,
+};
+#[cfg(feature = "profiles")]
+pub use profiles::hid::{
+    HidError, HidPacket, InputValue, ReportDescriptor, ReportField, TransactionType,
+};
+#[cfg(feature = "profiles")]
+pub use profiles::pan::{
+    ControlMessage as PanControlMessage, Error as PanError, Frame as PanFrame,
+    PacketType as PanPacketType,
+};
+#[cfg(feature = "profiles")]
+pub use profiles::{Profile, ProfileRequest, ProfileRole};
+#[cfg(feature = "raw-acl")]
+pub use raw::AclPacket;
+#[cfg(feature = "le-audio")]
+pub use raw::IsoPacket;
+#[cfg(feature = "raw-sco")]
+pub use raw::ScoPacket;
 pub use restoration::{Restoration, RestoredScan};
+#[cfg(feature = "classic")]
+pub use sdp::{SdpDataElement, SdpError, SdpServiceRecord};
 pub use state::ManagerState;
 pub use timer::{sleep, timeout};
 pub use uuid::{BluetoothUuid, IntoUuid};

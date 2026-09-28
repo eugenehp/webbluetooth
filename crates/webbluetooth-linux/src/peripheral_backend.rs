@@ -33,6 +33,7 @@ use crate::bluez::{interfaces, Bluez, Event, EventSink};
 use crate::dbus::connection::ObjectHandler;
 use crate::dbus::{Message, Value};
 use futures_core::Stream;
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Sender};
@@ -326,6 +327,7 @@ struct Inner {
     /// The advertisement's `a{sv}` properties, which BlueZ reads back off the
     /// object rather than taking as call arguments.
     advertisement: Mutex<Vec<(Value, Value)>>,
+    l2cap_listeners: Mutex<HashMap<webbluetooth_core::Psm, crate::l2cap::L2capListenerHandle>>,
 }
 
 impl Inner {
@@ -717,6 +719,7 @@ impl Peripheral {
             advertising: AtomicBool::new(false),
             next_index: AtomicUsize::new(0),
             advertisement: Mutex::new(Vec::new()),
+            l2cap_listeners: Mutex::new(HashMap::new()),
         });
         if let Some(bluez) = &inner.bluez {
             bluez.export(
@@ -918,17 +921,34 @@ impl Peripheral {
         &self,
         _encryption_required: bool,
     ) -> Result<webbluetooth_core::Psm> {
-        Err(Error::NotSupported(
-            "BlueZ has no D-Bus API for publishing an L2CAP channel; a peripheral \
-             would have to listen on an L2CAP socket itself"
-                .into(),
-        ))
+        let (psm, listener) = crate::l2cap::listen(0)?;
+        let sender = self.inner.to_app.clone();
+        let handle = listener.spawn(move |channel| {
+            let request = match channel {
+                Ok(channel) => Request::ChannelOpened(channel),
+                Err(error) => {
+                    eprintln!("LE L2CAP listener error: {error}");
+                    return;
+                }
+            };
+            let _ = sender.send(request);
+        })?;
+        self.inner
+            .l2cap_listeners
+            .lock()
+            .unwrap()
+            .insert(psm, handle);
+        Ok(psm)
     }
 
-    pub async fn unpublish_l2cap_channel(&self, _psm: webbluetooth_core::Psm) -> Result<()> {
-        Err(Error::NotSupported(
-            "no L2CAP channel can be published on this platform".into(),
-        ))
+    pub async fn unpublish_l2cap_channel(&self, psm: webbluetooth_core::Psm) -> Result<()> {
+        self.inner
+            .l2cap_listeners
+            .lock()
+            .unwrap()
+            .remove(&psm)
+            .ok_or_else(|| Error::NotFound(format!("no published L2CAP channel on PSM {psm}")))?;
+        Ok(())
     }
 
     /// Linux preserves nothing across a relaunch.

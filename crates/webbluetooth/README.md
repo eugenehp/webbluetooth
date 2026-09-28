@@ -35,7 +35,7 @@ while let Some(value) = beats.next().await {
 
 ```toml
 [dependencies]
-webbluetooth = "0.0.1"
+webbluetooth = "0.0.2"
 ```
 
 That is the whole dependency list for the example above. `webbluetooth::prelude`
@@ -81,6 +81,44 @@ to do about that; it is the single most common way to lose an afternoon here.
 `PERIPHERAL_ROLE` and `L2CAP` are `const bool`s to branch on, and the modules
 they describe do not exist where they are `false`.
 
+## Native extensions
+
+The standard-shaped API is available from the root crate. Native extensions
+are opt-in through Cargo features:
+
+| Feature | Provides |
+|---|---|
+| `public` | The Web Bluetooth-compatible imports under `webbluetooth::public`. |
+| `classic` | Enables Bluetooth Classic capability reporting. |
+| `rfcomm` | Enables RFCOMM byte streams on Linux and Android; it implies `classic`. |
+| `classic-l2cap` | Enables Bluetooth Classic L2CAP channels; it implies `classic` and is currently implemented on Linux. |
+| `linux-hci` | Uses the Linux controller directly instead of BlueZ. |
+| `uuid` | Converts to and from the `uuid` crate's `Uuid`. |
+
+For example:
+
+```toml
+[dependencies]
+webbluetooth = { version = "0.0.2", features = ["public", "rfcomm"] }
+```
+
+`BluetoothDevice::mtu()` reports the negotiated ATT MTU. On Android,
+`BluetoothDevice::request_mtu()` asks the platform to negotiate a requested
+value; platforms that hide or automatically manage the exchange return
+`Error::NotSupported`.
+
+Descriptors support `read_value()` and `write_value()` as well as
+`read_value_at_offset()` and `write_value_at_offset()`. The offset helpers use
+portable whole-value reads and writes, validate offsets, and enforce the
+512-byte ATT attribute limit.
+
+On Linux, `BluetoothDevice::open_rfcomm_channel(channel)` opens a Bluetooth
+Classic RFCOMM byte stream and `open_classic_l2cap_channel(psm)` opens a
+Classic L2CAP channel. On Android, `open_rfcomm_service(service_uuid)` opens
+an RFCOMM service-record connection. These transports are separate from BLE
+L2CAP and from the Web Bluetooth surface; Apple CoreBluetooth and browser
+targets do not expose them.
+
 ## What is different from a browser
 
 **The chooser is yours.** `requestDevice()` is defined around a user gesture
@@ -96,8 +134,12 @@ the services that were asked for.
 
 | | |
 |---|---|
+| `public` | Re-export the Web Bluetooth-compatible API under `webbluetooth::public`. |
+| `classic` | Enable Bluetooth Classic capability reporting and native extensions. |
+| `rfcomm` | Enable RFCOMM byte streams; implies `classic` and is currently implemented on Linux. |
 | `linux-hci` | Talk to the controller directly instead of going through BlueZ. |
 | `terminal-chooser` | A device chooser that prints numbered candidates and reads a line. |
+| `uuid` | Convert to and from the `uuid` crate's `Uuid`. |
 
 ## More
 

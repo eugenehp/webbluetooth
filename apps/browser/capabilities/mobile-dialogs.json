@@ -1,0 +1,19 @@
+{
+  "identifier": "mobile-dialogs",
+  "description": "The chooser, the scanning prompt and the permissions view on mobile. Their own windows, local only, and never reachable from the page \u2014 this is the boundary that lets the page load somebody else's site.",
+  "platforms": [
+    "iOS",
+    "android"
+  ],
+  "local": true,
+  "windows": [
+    "chooser",
+    "scanprompt",
+    "permissions"
+  ],
+  "permissions": [
+    "device-chooser",
+    "scanning-prompt",
+    "permissions-manager"
+  ]
+}

@@ -40,6 +40,13 @@ pub struct Advertisement {
     pub service_data: Vec<(String, Vec<u8>)>,
     /// Whether the advertisement said connections are accepted.
     pub connectable: bool,
+    /// The advertising data exactly as it arrived, before parsing.
+    ///
+    /// A raw HCI socket is the only transport in this workspace that sees the
+    /// packet rather than somebody's parse of it, so it is the only one that
+    /// can offer this. Kept so that a device sending an AD type this parser has
+    /// no field for is still inspectable.
+    pub raw: Vec<u8>,
 }
 
 /// Format a wire-order address as it is written.
@@ -111,6 +118,9 @@ fn canonical_128(wire: &[u8]) -> Option<String> {
 /// terminates it — padding after that is not a record, and treating it as one
 /// is a classic way to read garbage.
 pub fn parse_advertising_data(data: &[u8], into: &mut Advertisement) {
+    // Kept whole, including anything the loop below declines to parse: that is
+    // the reason to keep it.
+    into.raw.extend_from_slice(data);
     let mut i = 0;
     while i < data.len() {
         let length = data[i] as usize;
@@ -323,19 +333,11 @@ mod socket {
     const OCF_LE_SET_SCAN_ENABLE: u16 = 0x000C;
 
     // Only the HCI-specific calls; the rest come from `crate::sys`.
-    use crate::sys::bind;
+    use crate::sys::{bind, bluetooth_setsockopt};
     unsafe extern "C" {
         /// Declared variadic because it is: giving it a concrete third
         /// parameter would be a different function to the one that exists.
         fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
-
-        fn setsockopt(
-            fd: c_int,
-            level: c_int,
-            name: c_int,
-            val: *const HciFilter,
-            len: u32,
-        ) -> c_int;
     }
 
     #[repr(C, packed)]
@@ -524,11 +526,11 @@ mod socket {
                 opcode: 0,
             };
             let rc = unsafe {
-                setsockopt(
+                bluetooth_setsockopt(
                     fd,
                     SOL_HCI,
                     HCI_FILTER,
-                    &filter,
+                    (&raw const filter).cast(),
                     std::mem::size_of::<HciFilter>() as u32,
                 )
             };

@@ -78,6 +78,12 @@ pub struct Message {
     /// they arrive out of band — see [`super::fds`]. Declared here so the
     /// transport knows how many to claim for this message and no more.
     pub unix_fds: u32,
+    /// File descriptors received alongside an inbound method call.
+    ///
+    /// Profile APIs such as BlueZ `Profile1.NewConnection` pass an already
+    /// connected socket this way. The object handler owns these descriptors
+    /// and must either adopt or close them.
+    pub received_fds: Vec<std::os::fd::RawFd>,
 }
 
 impl Message {
@@ -95,6 +101,7 @@ impl Message {
             sender: None,
             body: Vec::new(),
             unix_fds: 0,
+            received_fds: Vec::new(),
         }
     }
 
@@ -297,6 +304,14 @@ impl Message {
             message.body = body_decoder.body(&signature)?;
         }
         Ok(message)
+    }
+}
+
+impl Drop for Message {
+    fn drop(&mut self) {
+        for fd in self.received_fds.drain(..) {
+            unsafe { crate::dbus::fds::close_raw(fd) };
+        }
     }
 }
 

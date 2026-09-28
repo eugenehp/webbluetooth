@@ -162,6 +162,14 @@ pub struct Inner {
     pdu_sizes: Mutex<HashMap<String, u16>>,
 }
 
+#[cfg(all(feature = "classic", target_os = "windows"))]
+impl Inner {
+    /// Enumerate Classic devices through Win32, independent of WinRT LE scans.
+    pub async fn classic_devices(&self) -> Result<Vec<webbluetooth_core::ClassicDevice>> {
+        crate::classic_discovery::discover().map_err(Error::Network)
+    }
+}
+
 impl Inner {
     pub fn new(show_power_alert: bool) -> Arc<Self> {
         Self::with_restoration(show_power_alert, None, BTreeSet::new())
@@ -393,6 +401,8 @@ impl Inner {
         }
 
         let advertisement = Advertisement {
+            #[cfg(feature = "classic")]
+            class_of_device: None,
             local_name: name.clone(),
             tx_power: None,
             // Would mean walking the raw data sections.
@@ -407,6 +417,8 @@ impl Inner {
             manufacturer_data: HashMap::new(),
             service_data: HashMap::new(),
             rssi,
+            // WinRT hands over parsed data sections, not the packet as received.
+            raw: None,
         };
 
         let id = ble::format_address(address);
@@ -1597,6 +1609,12 @@ impl Inner {
             slots::ibluetooth_lepreferred_connection_parameters_request::STATUS,
         );
         Ok(())
+    }
+
+    pub async fn request_mtu(&self, _id: &str, _mtu: u16) -> Result<()> {
+        Err(Error::NotSupported(
+            "WinRT exposes the negotiated PDU size but no MTU request API".into(),
+        ))
     }
 
     pub fn max_write_len(&self, id: &str, _write_type: WriteType) -> Result<usize> {

@@ -34,7 +34,7 @@ name       = "webbluetooth_node"
 # notification stream. It is not a new dependency: the core crate already uses
 # it and returns a `Stream`, so it is in the tree either way.
 [dependencies]
-webbluetooth = { path = "../webbluetooth", version = "0.0.1" }
+webbluetooth = { path = "../webbluetooth", version = "0.0.2" }
 futures-util = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 
 [lints]

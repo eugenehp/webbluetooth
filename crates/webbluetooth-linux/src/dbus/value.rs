@@ -135,6 +135,7 @@ impl Value {
             Self::Uint16(v) => Some(*v as u64),
             Self::Uint32(v) => Some(*v as u64),
             Self::Uint64(v) => Some(*v),
+            Self::UnixFd(v) => Some(*v as u64),
             _ => None,
         }
     }
@@ -306,6 +307,7 @@ mod tests {
             Value::Struct(vec![Value::Str("a".into()), Value::Uint32(2)]).signature(),
             "(su)"
         );
+        assert_eq!(Value::UnixFd(3).as_u64(), Some(3));
     }
 
     #[test]

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WebBluetooth Browser</title>
+    <link rel="stylesheet" href="home.css" />
+  </head>
+  <body>
+    <main>
+      <h1><span class="rune">ᛒ</span> WebBluetooth Browser</h1>
+      <p class="lede">
+        Every page loaded here gets a working <code>navigator.bluetooth</code>,
+        implemented over the <code>webbluetooth</code> crate rather than the
+        webview — WKWebView has no Web Bluetooth of its own.
+      </p>
+
+      <section class="panel">
+        <h2>Is it there?</h2>
+        <dl id="facts" class="facts"></dl>
+      </section>
+
+      <section class="panel">
+        <h2>Try it</h2>
+        <p class="hint">
+          Opens the same chooser any site gets. Nothing reaches the page until
+          you pick something.
+        </p>
+        <div class="actions">
+          <button id="scan" class="primary">Scan for a device…</button>
+          <button id="clear">Clear log</button>
+        </div>
+        <pre id="log" class="log" aria-live="polite"></pre>
+      </section>
+
+      <section class="panel">
+        <h2>Somewhere to point it</h2>
+        <ul class="links">
+          <li>
+            <a href="https://googlechrome.github.io/samples/web-bluetooth/"
+              >Chrome's Web Bluetooth samples</a
+            >
+            — device info, battery, notifications, each one a small page
+          </li>
+          <li>
+            <a href="https://webbluetoothcg.github.io/demos/"
+              >Community Group demos</a
+            >
+          </li>
+          <li>
+            <a href="https://googlechrome.github.io/samples/web-bluetooth/device-info.html"
+              >Read Device Information</a
+            >
+            — the shortest end-to-end check
+          </li>
+        </ul>
+        <p class="hint">
+          Web Bluetooth is a secure-context API, here as anywhere:
+          <code>navigator.bluetooth</code> is absent over plain
+          <code>http://</code> unless the host is loopback.
+        </p>
+      </section>
+    </main>
+    <script src="home.js"></script>
+  </body>
+</html>

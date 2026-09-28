@@ -744,6 +744,84 @@ impl Inner {
             .unwrap_or(false))
     }
 
+    #[cfg(feature = "classic")]
+    pub async fn bonded_classic_devices(&self) -> Result<Vec<String>> {
+        let mut addresses = Vec::new();
+        for path in self.with_bluez(|bluez| bluez.paths_with(interfaces::DEVICE))? {
+            let Some(object) = self.with_bluez(|bluez| bluez.object(&path))? else {
+                continue;
+            };
+            if object.bool(interfaces::DEVICE, "Paired").unwrap_or(false) {
+                if let Some(address) = object.string(interfaces::DEVICE, "Address") {
+                    addresses.push(address);
+                }
+            }
+        }
+        addresses.sort();
+        addresses.dedup();
+        Ok(addresses)
+    }
+
+    #[cfg(feature = "rfcomm")]
+    pub async fn register_classic_profile(
+        &self,
+        service: BluetoothUuid,
+        security: webbluetooth_core::ClassicSecurity,
+    ) -> Result<crate::classic_profile::ProfileRegistration> {
+        let guard = self.bluez.lock().unwrap();
+        let bluez = guard
+            .as_ref()
+            .ok_or(Error::NotAvailable(Availability::Unauthorized))?;
+        crate::classic_profile::ProfileRegistration::register(bluez, service, security)
+    }
+
+    #[cfg(feature = "rfcomm")]
+    pub async fn register_classic_profile_channel(
+        &self,
+        service: BluetoothUuid,
+        channel: u8,
+        security: webbluetooth_core::ClassicSecurity,
+    ) -> Result<crate::classic_profile::ProfileRegistration> {
+        let guard = self.bluez.lock().unwrap();
+        let bluez = guard
+            .as_ref()
+            .ok_or(Error::NotAvailable(Availability::Unauthorized))?;
+        crate::classic_profile::ProfileRegistration::register_rfcomm_channel(
+            bluez, service, channel, security,
+        )
+    }
+
+    #[cfg(feature = "classic-l2cap")]
+    pub async fn register_classic_l2cap_profile(
+        &self,
+        service: BluetoothUuid,
+        psm: webbluetooth_core::ClassicPsm,
+        security: webbluetooth_core::ClassicSecurity,
+    ) -> Result<crate::classic_profile::ProfileRegistration> {
+        let guard = self.bluez.lock().unwrap();
+        let bluez = guard
+            .as_ref()
+            .ok_or(Error::NotAvailable(Availability::Unauthorized))?;
+        crate::classic_profile::ProfileRegistration::register_l2cap(bluez, service, psm, security)
+    }
+
+    #[cfg(feature = "classic")]
+    pub async fn classic_service_uuids(&self, id: &str) -> Result<Vec<BluetoothUuid>> {
+        let path = self.device_path(id)?;
+        let object = self
+            .with_bluez(|bluez| bluez.object(&path))?
+            .ok_or_else(|| Error::NotFound(format!("BlueZ has no device object for {id}")))?;
+        let values = object
+            .property(interfaces::DEVICE, "UUIDs")
+            .and_then(Value::as_array)
+            .unwrap_or_default();
+        Ok(values
+            .iter()
+            .filter_map(Value::as_str)
+            .filter_map(|uuid| BluetoothUuid::parse(uuid).ok())
+            .collect())
+    }
+
     /// Not reachable from an application on this platform.
     ///
     /// BlueZ keeps the negotiated parameters in the kernel; no D-Bus property
@@ -870,7 +948,7 @@ impl Inner {
         let (tx, rx) = oneshot::channel();
         self.with_bluez(|b| {
             b.call_async(path, interface, member, args, move |reply| {
-                let _ = tx.send(reply.map(|m| m.body));
+                let _ = tx.send(reply.map(|m| m.body.clone()));
             });
         })?;
         match rx.await {
@@ -1168,6 +1246,12 @@ impl Inner {
         ))
     }
 
+    pub async fn request_mtu(&self, _id: &str, _mtu: u16) -> Result<()> {
+        Err(Error::NotSupported(
+            "BlueZ does not expose an ATT MTU request API".into(),
+        ))
+    }
+
     pub fn max_write_len(&self, id: &str, _write_type: WriteType) -> Result<usize> {
         // BlueZ exposes MTU per characteristic; without one, fall back to the
         // smallest an ATT write is guaranteed to carry.
@@ -1236,6 +1320,11 @@ fn advertisement_from(props: &HashMap<String, Value>) -> Advertisement {
     }
 
     Advertisement {
+        #[cfg(feature = "classic")]
+        class_of_device: props
+            .get("Class")
+            .and_then(Value::as_u64)
+            .map(|value| webbluetooth_core::ClassOfDevice::from_raw(value as u32)),
         local_name: props
             .get("Name")
             .or_else(|| props.get("Alias"))
@@ -1268,6 +1357,10 @@ fn advertisement_from(props: &HashMap<String, Value>) -> Advertisement {
             .and_then(Value::as_i64)
             .map(|v| v as i32)
             .unwrap_or(127),
+        // BlueZ hands over D-Bus properties, not the packet they came from.
+        // The `linux-hci` backend, which reads the reports itself, does have
+        // the bytes.
+        raw: None,
     }
 }
 

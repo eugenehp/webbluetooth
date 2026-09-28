@@ -64,6 +64,66 @@ const EXCEPTIONS: &[Exception] = &[
         why: "the browser watches per device; the native backends watch the \
               radio and filter, so BluetoothDevice drives it there instead",
     },
+    Exception {
+        member: "Inner::rfcomm_target",
+        absent_from: &["apple", "linux", "linux-hci", "windows", "wasm"],
+        why: "Android is the only backend currently exposing a BluetoothSocket \
+              RFCOMM service-record factory",
+    },
+    Exception {
+        member: "Inner::classic_l2cap_target",
+        absent_from: &["apple", "linux", "linux-hci", "windows", "wasm"],
+        why: "Android is the only backend currently exposing a Classic \
+              BluetoothSocket L2CAP factory",
+    },
+    Exception {
+        member: "Inner::listen_rfcomm",
+        absent_from: &["apple", "linux", "linux-hci", "windows", "wasm"],
+        why: "Android is the only backend currently exposing the Android \
+              RFCOMM server socket API",
+    },
+    Exception {
+        member: "Inner::listen_classic_l2cap",
+        absent_from: &["apple", "linux", "linux-hci", "windows", "wasm"],
+        why: "Android is the only backend currently exposing the Android \
+              Classic L2CAP server socket API",
+    },
+    Exception {
+        member: "Inner::bonded_classic_devices",
+        absent_from: &["apple", "linux-hci", "windows", "wasm"],
+        why: "BlueZ and Android expose persistent Classic bond databases; the \
+              other backends do not",
+    },
+    Exception {
+        member: "Inner::classic_service_uuids",
+        absent_from: &["apple", "linux-hci", "windows", "wasm"],
+        why: "BlueZ and Android expose service UUIDs through their Classic \
+              device objects; the other backends do not",
+    },
+    Exception {
+        member: "Inner::classic_devices",
+        absent_from: &["apple", "linux", "linux-hci", "android", "wasm"],
+        why: "Windows uses the Win32 Classic discovery API; other backends use \
+              their own discovery paths or do not expose Classic discovery yet",
+    },
+    Exception {
+        member: "Inner::register_classic_profile",
+        absent_from: &["apple", "linux-hci", "android", "windows", "wasm"],
+        why: "only the Linux BlueZ backend currently exports Profile1 and \
+              ProfileManager1 for Classic registration",
+    },
+    Exception {
+        member: "Inner::register_classic_l2cap_profile",
+        absent_from: &["apple", "linux-hci", "android", "windows", "wasm"],
+        why: "only the Linux BlueZ backend currently registers Classic L2CAP \
+              profiles through ProfileManager1",
+    },
+    Exception {
+        member: "Inner::register_classic_profile_channel",
+        absent_from: &["apple", "linux-hci", "android", "windows", "wasm"],
+        why: "only the Linux BlueZ backend currently supports explicit \
+              RFCOMM channel registration",
+    },
 ];
 
 /// A member whose *type* is allowed to differ, and why.

@@ -24,6 +24,10 @@ pub const UNAVAILABLE_RSSI: i32 = 127;
 /// exposes — each field says so where it differs.
 #[derive(Debug, Clone, Default)]
 pub struct Advertisement {
+    /// Bluetooth Classic Class of Device, when a Classic inquiry or BlueZ
+    /// device object provides it. `None` for LE-only and browser reports.
+    #[cfg(feature = "classic")]
+    pub class_of_device: Option<crate::classic::ClassOfDevice>,
     /// The name in this packet, which can differ from the cached GAP name.
     pub local_name: Option<String>,
     /// Advertised transmit power in dBm, if present.
@@ -50,6 +54,42 @@ pub struct Advertisement {
     pub service_data: HashMap<BluetoothUuid, Vec<u8>>,
     /// Received signal strength in dBm. [`UNAVAILABLE_RSSI`] means no reading.
     pub rssi: i32,
+    /// The advertising data exactly as it came off the air, if the transport
+    /// hands it over.
+    ///
+    /// A sequence of length-type-value records, as the Core Specification's
+    /// *Advertising and Scan Response data format* defines them. Every parsed
+    /// field above is derived from these bytes, so this is where to look when a
+    /// device sends something the parser has no field for — a vendor's own AD
+    /// type, a malformed record, a value that survived the round trip in a
+    /// shape the structured view flattens away.
+    ///
+    /// `None` on every transport that hands over a parsed structure instead of
+    /// the packet: CoreBluetooth reports a dictionary, BlueZ a set of D-Bus
+    /// properties, and the browser an event object. Only a raw HCI socket sees
+    /// the bytes, so only the `linux-hci` backend fills this in.
+    ///
+    /// # Why this is withheld from a grant
+    ///
+    /// These bytes contain the manufacturer data whole, which is exactly what
+    /// the per-grant filtering of [`Self::manufacturer_data`] exists to
+    /// restrict. Reporting them to a caller whose grant covers one company
+    /// identifier would hand over every other company's as well, and reporting
+    /// them at all would defeat the manufacturer blocklist. So they are cleared
+    /// for any grant that does not already permit all manufacturer data.
+    ///
+    /// Opting in is
+    #[cfg_attr(
+        feature = "unrestricted",
+        doc = "[`RequestDeviceOptions::accept_all_manufacturer_data`],"
+    )]
+    #[cfg_attr(
+        not(feature = "unrestricted"),
+        doc = "`RequestDeviceOptions::accept_all_manufacturer_data`,"
+    )]
+    /// which exists only under the `unrestricted` feature. Without it no grant
+    /// permits all manufacturer data, so a caller always reads `None` here.
+    pub raw: Option<Vec<u8>>,
 }
 
 impl Advertisement {
@@ -79,6 +119,10 @@ impl Advertisement {
         }
         if newer.appearance.is_some() {
             self.appearance = newer.appearance;
+        }
+        #[cfg(feature = "classic")]
+        if newer.class_of_device.is_some() {
+            self.class_of_device = newer.class_of_device;
         }
         // A scan response is not itself connectable, so it must not be allowed
         // to retract what the advertisement already established.
@@ -110,6 +154,11 @@ impl Advertisement {
         }
         self.manufacturer_data.extend(newer.manufacturer_data);
         self.service_data.extend(newer.service_data);
+        // Not concatenated: two reports are two packets, and their bytes are
+        // not one longer packet. The newer one is the better answer.
+        if newer.raw.is_some() {
+            self.raw = newer.raw;
+        }
     }
 }
 
@@ -129,13 +178,24 @@ impl Advertisement {
     /// stranger's phone acceptable.
     pub(crate) fn restrict_to(&mut self, grant: Option<&crate::registry::Grant>) {
         if let Some(grant) = grant {
-            let allowed = |u: &BluetoothUuid| grant.services.contains(u);
-            self.service_uuids.retain(allowed);
-            self.overflow_service_uuids.retain(allowed);
-            self.solicited_service_uuids.retain(allowed);
-            self.service_data.retain(|uuid, _| allowed(uuid));
+            // A grant naming every service has nothing to retain against, and
+            // filtering by the (empty) named set would report a device that
+            // advertises nothing at all.
+            if !grant.permits_all_services() {
+                let allowed = |u: &BluetoothUuid| grant.services.contains(u);
+                self.service_uuids.retain(allowed);
+                self.overflow_service_uuids.retain(allowed);
+                self.solicited_service_uuids.retain(allowed);
+                self.service_data.retain(|uuid, _| allowed(uuid));
+            }
             self.manufacturer_data
-                .retain(|company, _| grant.manufacturer_data.contains(company));
+                .retain(|company, _| grant.permits_company(*company));
+            // The raw bytes carry every company's data, so filtering the parsed
+            // map while handing over the packet it was parsed from would be
+            // filtering nothing at all.
+            if !grant.permits_all_manufacturer_data() {
+                self.raw = None;
+            }
         }
         self.manufacturer_data
             .retain(|company, data| !blocklist::manufacturer_data_blocked(*company, data));
@@ -397,6 +457,9 @@ pub struct RequestDeviceOptions {
     optional_services: Vec<BluetoothUuid>,
     optional_manufacturer_data: Vec<u16>,
     accept_all_devices: bool,
+    /// Ask for every company's advertisement data, and with it the raw packet.
+    #[cfg(feature = "unrestricted")]
+    all_manufacturer_data: bool,
 }
 
 impl RequestDeviceOptions {
@@ -437,6 +500,23 @@ impl RequestDeviceOptions {
             self.optional_services.push(u.into_uuid()?);
         }
         Ok(self)
+    }
+
+    /// Ask for manufacturer data from *every* company, and for the raw
+    /// advertising bytes along with it.
+    ///
+    /// Outside the Web Bluetooth model, and behind the `unrestricted` feature
+    /// for the same reason [`Grant::all_services`](crate::registry::Grant::all_services)
+    /// is: a page is supposed to name the companies it came for. A general
+    /// scanner cannot, because what it is for is showing what is on the air.
+    ///
+    /// The manufacturer blocklist is not part of this and still applies — an
+    /// iBeacon frame is withheld under this too, and is stripped from the raw
+    /// bytes' parsed counterpart regardless.
+    #[cfg(feature = "unrestricted")]
+    pub fn accept_all_manufacturer_data(mut self) -> Self {
+        self.all_manufacturer_data = true;
+        self
     }
 
     /// Permit reading manufacturer data from these company identifiers.
@@ -487,10 +567,21 @@ impl RequestDeviceOptions {
     /// Everything this request would grant: the services and the company
     /// identifiers whose advertisement data may be seen.
     pub fn grant(&self) -> crate::registry::Grant {
-        crate::registry::Grant {
-            services: self.allowed_services(),
-            manufacturer_data: self.optional_manufacturer_data.clone(),
+        // Built by assignment rather than as a literal with `..default()`:
+        // the struct has two more fields under the `unrestricted` feature and
+        // none without it, so a literal is either incomplete or redundant
+        // depending on how the crate was compiled — and a backend enabling all
+        // of *its* features does not enable that one.
+        let mut grant = crate::registry::Grant::new();
+        grant.services = self.allowed_services();
+        grant.manufacturer_data = self.optional_manufacturer_data.clone();
+        // `requestDevice` never grants a wildcard over services: the allowlist
+        // it derives is the whole point of the call.
+        #[cfg(feature = "unrestricted")]
+        {
+            grant.all_manufacturer_data = self.all_manufacturer_data;
         }
+        grant
     }
 
     /// Every service this request would grant access to: the union of each
@@ -560,8 +651,73 @@ mod tests {
     use super::*;
     use crate::uuid::services;
 
+    /// The raw packet contains every company's data, so handing it to a caller
+    /// whose grant covers one company would hand over the rest as well.
+    #[test]
+    fn raw_bytes_are_withheld_from_a_narrow_grant() {
+        let packet = vec![0x02, 0x01, 0x06, 0x03, 0x03, 0x0F, 0x18];
+        let narrow = crate::registry::Grant::new().manufacturer_data([0x004C]);
+
+        let mut adv = Advertisement {
+            raw: Some(packet.clone()),
+            ..Default::default()
+        };
+        adv.restrict_to(Some(&narrow));
+        assert_eq!(adv.raw, None, "a narrow grant must not see the packet");
+
+        // No grant at all is the chooser's view, which has to show what is
+        // actually on the air.
+        let mut chooser_view = Advertisement {
+            raw: Some(packet.clone()),
+            ..Default::default()
+        };
+        chooser_view.restrict_to(None);
+        assert_eq!(chooser_view.raw, Some(packet));
+    }
+
+    #[cfg(feature = "unrestricted")]
+    #[test]
+    fn raw_bytes_reach_a_grant_that_covers_every_company() {
+        let packet = vec![0x02, 0x01, 0x06];
+        let mut adv = Advertisement {
+            raw: Some(packet.clone()),
+            ..Default::default()
+        };
+        adv.restrict_to(Some(&crate::registry::Grant::unrestricted()));
+        assert_eq!(adv.raw, Some(packet));
+
+        // All *services* is not enough: this is about manufacturer data.
+        let mut services_only = Advertisement {
+            raw: Some(vec![0x02, 0x01, 0x06]),
+            ..Default::default()
+        };
+        services_only.restrict_to(Some(&crate::registry::Grant::all_services()));
+        assert_eq!(services_only.raw, None);
+    }
+
+    /// Two reports are two packets. Concatenating their bytes would invent a
+    /// packet that was never sent.
+    #[test]
+    fn merging_takes_the_newer_packet_rather_than_joining_them() {
+        let mut first = Advertisement {
+            raw: Some(vec![0x02, 0x01, 0x06]),
+            ..Default::default()
+        };
+        first.merge(Advertisement {
+            raw: Some(vec![0x03, 0x03, 0x0F]),
+            ..Default::default()
+        });
+        assert_eq!(first.raw, Some(vec![0x03, 0x03, 0x0F]));
+
+        // And a report that carried none does not erase one already seen.
+        first.merge(Advertisement::default());
+        assert_eq!(first.raw, Some(vec![0x03, 0x03, 0x0F]));
+    }
+
     fn adv_with_services(uuids: &[BluetoothUuid]) -> Advertisement {
         Advertisement {
+            #[cfg(feature = "classic")]
+            class_of_device: None,
             service_uuids: uuids.to_vec(),
             ..Default::default()
         }
@@ -580,6 +736,8 @@ mod tests {
     fn a_scan_response_completes_the_advertisement() {
         let mut merged = Advertisement::default();
         merged.merge(Advertisement {
+            #[cfg(feature = "classic")]
+            class_of_device: None,
             service_uuids: vec![BluetoothUuid::from_u16(0x180F)],
             is_connectable: Some(true),
             rssi: -61,
@@ -587,6 +745,8 @@ mod tests {
         });
         // The scan response: a name, no UUIDs, and not itself connectable.
         merged.merge(Advertisement {
+            #[cfg(feature = "classic")]
+            class_of_device: None,
             local_name: Some("Rust Linux".into()),
             is_connectable: Some(false),
             rssi: -60,
@@ -612,11 +772,15 @@ mod tests {
     #[test]
     fn merging_accumulates_uuids_and_keeps_the_last_reading() {
         let mut merged = Advertisement {
+            #[cfg(feature = "classic")]
+            class_of_device: None,
             service_uuids: vec![BluetoothUuid::from_u16(0x180D)],
             rssi: UNAVAILABLE_RSSI,
             ..Default::default()
         };
         merged.merge(Advertisement {
+            #[cfg(feature = "classic")]
+            class_of_device: None,
             service_uuids: vec![BluetoothUuid::from_u16(0x180F)],
             rssi: UNAVAILABLE_RSSI,
             ..Default::default()
@@ -638,6 +802,8 @@ mod tests {
     #[test]
     fn either_name_satisfies_a_name_filter() {
         let advertised = Advertisement {
+            #[cfg(feature = "classic")]
+            class_of_device: None,
             local_name: Some("Rust iPad".into()),
             ..Default::default()
         };
@@ -657,6 +823,8 @@ mod tests {
     #[test]
     fn either_name_satisfies_a_name_prefix() {
         let advertised = Advertisement {
+            #[cfg(feature = "classic")]
+            class_of_device: None,
             local_name: Some("Rust iPad".into()),
             ..Default::default()
         };

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Connect to a device</title>
+    <link rel="stylesheet" href="chooser.css" />
+  </head>
+  <body>
+    <header>
+      <p class="lede"><strong id="origin">A site</strong> wants to pair</p>
+      <p id="wants" class="wants"></p>
+    </header>
+
+    <p id="status" class="status">
+      <span class="spinner"></span><span id="statusText">Scanning…</span>
+    </p>
+
+    <ul id="list" class="list" aria-label="Devices found"></ul>
+
+    <p id="empty" class="empty" hidden>
+      Nothing yet. Make sure the device is switched on, in range, and not
+      already connected to something else.
+    </p>
+
+    <footer>
+      <button id="rescan" class="quiet">Rescan</button>
+      <span class="grow"></span>
+      <button id="cancel">Cancel</button>
+      <button id="pair" class="primary" disabled>Pair</button>
+    </footer>
+
+    <script src="chooser.js"></script>
+  </body>
+</html>

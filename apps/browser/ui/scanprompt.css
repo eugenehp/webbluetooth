@@ -1,0 +1,20 @@
+/* Shares chooser.css for colours and controls; only the body block differs. */
+
+.body {
+  flex: 1;
+  padding: 0 14px;
+}
+
+.warn {
+  margin: 0 0 8px;
+  padding: 9px 11px;
+  border-radius: 7px;
+  background: color-mix(in srgb, #d08a00 18%, transparent);
+  font-size: 12px;
+}
+
+.small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+}

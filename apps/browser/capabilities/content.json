@@ -1,0 +1,24 @@
+{
+  "identifier": "web-content-bluetooth",
+  "description": "Gives the Web Bluetooth commands to the webviews that render web content \u2014 one per tab, matched by glob, for every http(s) origin. This is what makes navigator.bluetooth work on an arbitrary site; the commands themselves enforce the per-origin permission the user granted through the chooser.",
+  "local": true,
+  "remote": {
+    "urls": [
+      "http://*",
+      "https://*",
+      "http://*:*",
+      "https://*:*"
+    ]
+  },
+  "webviews": [
+    "content-*"
+  ],
+  "permissions": [
+    "bluetooth-api"
+  ],
+  "platforms": [
+    "macOS",
+    "windows",
+    "linux"
+  ]
+}

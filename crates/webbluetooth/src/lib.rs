@@ -89,9 +89,25 @@
 pub use webbluetooth_core::{
     adapter, backlog, blocklist, chooser, error, filter, grants, timer, uuid,
 };
+#[cfg(feature = "profiles")]
+pub use webbluetooth_core::{
+    negotiate_a2dp, negotiate_sbc_parameters, A2dpCapability, A2dpCodec, A2dpConfiguration,
+    A2dpNegotiationError, SbcAllocation, SbcChannelMode, SbcConfiguration,
+};
+#[cfg(feature = "profiles")]
+pub use webbluetooth_core::{
+    parse_obex_header, DunState, ObexError, ObexHeader, ObexOperation, ObexPacket, PanRole,
+};
+#[cfg(feature = "profiles")]
+pub use webbluetooth_core::{PanControlMessage, PanError, PanFrame, PanPacketType};
 // Not public, and not previously: a backend and the GATT tree both need these,
 // a caller does not.
 use webbluetooth_core::{address, restoration, scan};
+/// Bluetooth Classic L2CAP channels.
+#[cfg(all(feature = "classic-l2cap", target_os = "linux"))]
+pub mod classic_l2cap;
+#[cfg(all(feature = "classic-l2cap", target_os = "windows"))]
+pub mod classic_l2cap_windows;
 /// L2CAP connection-oriented channels.
 ///
 /// Absent on Windows, which exposes no such API. Branch on [`L2CAP`].
@@ -104,6 +120,15 @@ pub mod l2cap;
 /// backend implements it. Branch on [`PERIPHERAL_ROLE`].
 #[cfg(peripheral_role)]
 pub mod peripheral;
+/// Linux raw HCI ACL/SCO transport.
+#[cfg(all(
+    target_os = "linux",
+    any(feature = "raw-acl", feature = "raw-sco", feature = "le-audio")
+))]
+pub mod raw_hci;
+/// Bluetooth Classic RFCOMM byte streams.
+#[cfg(feature = "rfcomm")]
+pub mod rfcomm;
 
 #[cfg(target_os = "android")]
 use webbluetooth_android::backend;
@@ -154,6 +179,57 @@ pub use gatt::{
     CharacteristicProperties, Notifications, RemoteGattCharacteristic, RemoteGattDescriptor,
     RemoteGattServer, RemoteGattService, Tagged, WriteType,
 };
+#[cfg(all(target_os = "linux", any(feature = "raw-acl", feature = "raw-sco")))]
+pub use raw_hci::RawHciSocket;
+#[cfg(feature = "classic")]
+pub use webbluetooth_core::classic::{
+    BluetoothAddress, ClassOfDevice, ClassicAddressError, ClassicPsm, ClassicSecurity,
+    RfcommChannel as ClassicRfcommChannel,
+};
+#[cfg(feature = "classic")]
+pub use webbluetooth_core::sdp::{SdpDataElement, SdpError, SdpServiceRecord};
+#[cfg(feature = "raw-acl")]
+pub use webbluetooth_core::AclPacket;
+#[cfg(all(feature = "classic", target_os = "windows"))]
+pub use webbluetooth_core::ClassicDevice;
+#[cfg(feature = "le-audio")]
+pub use webbluetooth_core::IsoPacket;
+#[cfg(feature = "raw-sco")]
+pub use webbluetooth_core::ScoPacket;
+#[cfg(feature = "profiles")]
+pub use webbluetooth_core::{
+    absolute_volume, negotiate_sbc_capabilities, playback_status, AvrcpCommand, AvrcpEvent,
+    AvrcpMetadata, AvrcpPassThrough, PlaybackStatus,
+};
+#[cfg(feature = "profiles")]
+pub use webbluetooth_core::{
+    encode_command, AtError, AtLine, AtParser, CallCommand, CallInfo, CallState,
+};
+#[cfg(feature = "profiles")]
+pub use webbluetooth_core::{
+    AvdtpCapabilitiesError, AvdtpDiscoverError, AvdtpEndpointType, AvdtpError, AvdtpMediaType,
+    AvdtpMessageType, AvdtpPacketType, AvdtpResponse, AvdtpResponseResult, AvdtpSbcCapability,
+    AvdtpServiceCategory, AvdtpSignalIdentifier, AvdtpSignalingPacket,
+    AvdtpStreamEndpointDescriptor, AvdtpStreamEndpointId,
+};
+#[cfg(feature = "le-audio")]
+pub use webbluetooth_core::{
+    CodecError, IsoConfiguration, IsoMetadata, IsoStream, Lc3Codec, Lc3Frame,
+};
+#[cfg(feature = "profiles")]
+pub use webbluetooth_core::{
+    HidError, HidPacket, InputValue, ReportDescriptor, ReportField, TransactionType,
+};
+#[cfg(feature = "mesh")]
+pub use webbluetooth_core::{
+    MeshAddress, MeshNetworkPdu, NetworkHeader, ProvisioningEvent, ProvisioningFailure,
+    ProvisioningSession, ProvisioningState,
+};
+#[cfg(feature = "profiles")]
+pub use webbluetooth_core::{Profile, ProfileRequest, ProfileRole};
+pub use webbluetooth_core::{Protocol, ProtocolCapabilities};
+#[cfg(feature = "profiles")]
+pub use webbluetooth_core::{SbcFrame, SbcMediaError, SbcMediaPacket};
 
 /// Streams, and the pieces needed to work with several at once.
 ///
@@ -227,6 +303,22 @@ pub mod stream {
 pub mod future {
     pub use futures_util::future::{join, select, BoxFuture, Either};
 }
+
+/// The Web Bluetooth-compatible portion of this crate's API.
+///
+/// Enable the `public` feature and import from this module when an application
+/// wants its dependency boundary to advertise the standard surface explicitly.
+/// Native extensions remain available from the root crate when desired.
+#[cfg(feature = "public")]
+pub mod public {
+    pub use crate::stream::{Stream, StreamExt};
+    pub use crate::uuid::{BluetoothUuid, IntoUuid};
+    pub use crate::{
+        Availability, Bluetooth, BluetoothDevice, DataPrefix, DeviceFilter, Error, Grant,
+        LeScanOptions, Notifications, RemoteGattCharacteristic, RemoteGattDescriptor,
+        RemoteGattServer, RemoteGattService, RequestDeviceOptions, Result, Tagged,
+    };
+}
 #[cfg(l2cap)]
 pub use l2cap::{L2capChannel, Psm};
 /// What a device has been granted access to.
@@ -246,6 +338,32 @@ pub type Psm = u16;
 /// `false` only on Windows.
 pub const L2CAP: bool = cfg!(l2cap);
 
+/// Whether Bluetooth Classic APIs were enabled for this build.
+pub const CLASSIC: bool = cfg!(feature = "classic");
+
+/// Whether RFCOMM APIs were enabled for this build.
+pub const RFCOMM: bool = cfg!(feature = "rfcomm");
+
+/// Whether profile APIs were enabled for this build.
+pub const PROFILES: bool = cfg!(feature = "profiles");
+
+/// Whether Bluetooth Mesh APIs were enabled for this build.
+pub const MESH: bool = cfg!(feature = "mesh");
+
+/// Whether raw ACL transport APIs were enabled for this build.
+pub const RAW_ACL: bool = cfg!(feature = "raw-acl");
+
+/// Whether raw SCO transport APIs were enabled for this build.
+pub const RAW_SCO: bool = cfg!(feature = "raw-sco");
+
+/// Whether LE Audio APIs were enabled for this build.
+pub const LE_AUDIO: bool = cfg!(feature = "le-audio");
+
+/// Whether the macOS IOBluetooth Classic backend was explicitly requested.
+///
+/// The backend is not available on non-macOS Apple targets or browsers.
+pub const APPLE_CLASSIC: bool = cfg!(all(feature = "apple-classic", target_os = "macos"));
+
 /// Starting the Android backend.
 ///
 /// Android has no ambient way to reach a `Context`, so one must be supplied
@@ -255,10 +373,33 @@ pub mod android {
     pub use crate::backend::init;
     pub use webbluetooth_android::jni::{JObject, Vm};
 }
+#[cfg(all(feature = "classic-l2cap", target_os = "linux"))]
+pub use classic_l2cap::ClassicL2capChannel;
+#[cfg(all(feature = "classic-l2cap", target_os = "linux"))]
+pub use classic_l2cap::ClassicL2capListener;
+#[cfg(all(feature = "classic-l2cap", target_os = "android"))]
+pub use classic_l2cap::ClassicL2capListener;
+#[cfg(all(feature = "classic-l2cap", target_os = "windows"))]
+pub use classic_l2cap_windows::ClassicL2capChannel;
+#[cfg(all(feature = "classic-l2cap", target_os = "windows"))]
+pub use classic_l2cap_windows::ClassicL2capListener;
 #[cfg(peripheral_role)]
 pub use peripheral::Peripheral;
 pub use restoration::Restoration;
+#[cfg(all(
+    feature = "rfcomm",
+    any(target_os = "linux", target_os = "android", target_os = "windows")
+))]
+pub use rfcomm::RfcommChannel;
+#[cfg(all(feature = "rfcomm", target_os = "linux"))]
+pub use rfcomm::RfcommListener;
+#[cfg(all(feature = "rfcomm", target_os = "android"))]
+pub use rfcomm::RfcommListener;
+#[cfg(all(feature = "rfcomm", target_os = "windows"))]
+pub use rfcomm::RfcommListener;
 pub use timer::{sleep, timeout};
+#[cfg(all(feature = "profiles", feature = "classic-l2cap", target_os = "linux"))]
+pub use webbluetooth_linux::a2dp::A2dpSession;
 
 /// Everything a program needs in scope, in one import.
 ///
@@ -321,6 +462,178 @@ pub struct Bluetooth {
 }
 
 impl Bluetooth {
+    /// Query full SDP service records from a Linux Classic peer.
+    #[cfg(all(feature = "rfcomm", target_os = "linux", not(feature = "linux-hci")))]
+    pub async fn query_sdp(
+        &self,
+        address: &str,
+        service: BluetoothUuid,
+    ) -> Result<Vec<SdpServiceRecord>> {
+        webbluetooth_linux::sdp::query(address, service).map_err(Error::Network)
+    }
+
+    /// Discover Bluetooth Classic devices through the Windows native API.
+    #[cfg(all(feature = "classic", target_os = "windows"))]
+    pub async fn classic_devices(&self) -> Result<Vec<ClassicDevice>> {
+        self.inner.backend().classic_devices().await
+    }
+
+    /// List paired Bluetooth Classic device addresses from BlueZ.
+    #[cfg(all(feature = "classic", target_os = "linux", not(feature = "linux-hci")))]
+    pub async fn bonded_classic_devices(&self) -> Result<Vec<String>> {
+        self.inner.require_powered_on().await?;
+        self.inner.backend().bonded_classic_devices().await
+    }
+
+    /// Register an RFCOMM Classic profile with BlueZ.
+    #[cfg(all(feature = "classic", target_os = "linux", not(feature = "linux-hci")))]
+    pub async fn register_classic_profile(
+        &self,
+        service: BluetoothUuid,
+        security: ClassicSecurity,
+    ) -> Result<webbluetooth_linux::classic_profile::ProfileRegistration> {
+        self.inner
+            .backend()
+            .register_classic_profile(service, security)
+            .await
+    }
+
+    /// Register an RFCOMM Classic profile on a specific BlueZ server channel.
+    #[cfg(all(feature = "rfcomm", target_os = "linux", not(feature = "linux-hci")))]
+    pub async fn register_classic_profile_channel(
+        &self,
+        service: BluetoothUuid,
+        channel: u8,
+        security: ClassicSecurity,
+    ) -> Result<webbluetooth_linux::classic_profile::ProfileRegistration> {
+        self.inner
+            .backend()
+            .register_classic_profile_channel(service, channel, security)
+            .await
+    }
+
+    /// Register a SIG profile over RFCOMM with Linux BlueZ.
+    ///
+    /// This registers the transport/profile endpoint only. A2DP, HFP, HID,
+    /// and other profile state machines remain platform-specific.
+    #[cfg(all(
+        feature = "profiles",
+        feature = "rfcomm",
+        target_os = "linux",
+        not(feature = "linux-hci")
+    ))]
+    pub async fn register_profile(
+        &self,
+        profile: Profile,
+        security: ClassicSecurity,
+    ) -> Result<webbluetooth_linux::classic_profile::ProfileRegistration> {
+        let service = profile
+            .service_uuid()
+            .ok_or_else(|| Error::NotSupported("this profile has no RFCOMM service UUID".into()))?;
+        self.register_classic_profile(service, security).await
+    }
+
+    /// Register a Classic L2CAP profile with BlueZ.
+    #[cfg(all(
+        feature = "classic-l2cap",
+        target_os = "linux",
+        not(feature = "linux-hci")
+    ))]
+    pub async fn register_classic_l2cap_profile(
+        &self,
+        service: BluetoothUuid,
+        psm: ClassicPsm,
+        security: ClassicSecurity,
+    ) -> Result<webbluetooth_linux::classic_profile::ProfileRegistration> {
+        self.inner
+            .backend()
+            .register_classic_l2cap_profile(service, psm, security)
+            .await
+    }
+
+    /// Read Classic/LE service UUIDs reported by an Android device.
+    #[cfg(all(feature = "classic", target_os = "android"))]
+    pub async fn classic_service_uuids(&self, id: &str) -> Result<Vec<BluetoothUuid>> {
+        self.inner.backend().classic_service_uuids(id).await
+    }
+
+    /// Read Classic service UUIDs reported by a BlueZ device object.
+    #[cfg(all(feature = "classic", target_os = "linux", not(feature = "linux-hci")))]
+    pub async fn classic_service_uuids(&self, id: &str) -> Result<Vec<BluetoothUuid>> {
+        self.inner.backend().classic_service_uuids(id).await
+    }
+
+    /// List paired Android Bluetooth Classic device addresses.
+    #[cfg(all(feature = "classic", target_os = "android"))]
+    pub async fn bonded_classic_devices(&self) -> Result<Vec<String>> {
+        self.inner.require_powered_on().await?;
+        self.inner.backend().bonded_classic_devices().await
+    }
+
+    /// Listen for Windows Bluetooth Classic L2CAP connections on a PSM.
+    #[cfg(all(feature = "classic-l2cap", target_os = "windows"))]
+    pub fn listen_classic_l2cap(&self, psm: ClassicPsm) -> Result<ClassicL2capListener> {
+        classic_l2cap_windows::listen(psm)
+    }
+
+    /// Listen for Windows RFCOMM connections on a server channel.
+    #[cfg(all(feature = "rfcomm", target_os = "windows"))]
+    pub fn listen_rfcomm(&self, channel: u8) -> Result<RfcommListener> {
+        rfcomm::listen_windows(channel)
+    }
+
+    /// Listen for Android Bluetooth Classic L2CAP connections.
+    #[cfg(all(feature = "classic-l2cap", target_os = "android"))]
+    pub async fn listen_classic_l2cap(&self, secure: bool) -> Result<ClassicL2capListener> {
+        self.inner.require_powered_on().await?;
+        classic_l2cap::listen_android(self, secure)
+    }
+
+    /// Listen for Android RFCOMM connections registered under a service UUID.
+    #[cfg(all(feature = "rfcomm", target_os = "android"))]
+    pub async fn listen_rfcomm_service(
+        &self,
+        name: &str,
+        service_uuid: &str,
+    ) -> Result<RfcommListener> {
+        self.inner.require_powered_on().await?;
+        rfcomm::listen_android(self, name, service_uuid)
+    }
+
+    /// Open a Linux raw ACL HCI socket for controller `device`.
+    #[cfg(all(target_os = "linux", feature = "raw-acl"))]
+    pub fn open_raw_acl(&self, device: u16) -> Result<RawHciSocket> {
+        raw_hci::open_acl(device)
+    }
+
+    /// Open a Linux raw SCO/eSCO HCI socket for controller `device`.
+    #[cfg(all(target_os = "linux", feature = "raw-sco"))]
+    pub fn open_raw_sco(&self, device: u16) -> Result<RawHciSocket> {
+        raw_hci::open_sco(device)
+    }
+
+    /// Open a Linux raw ISO HCI socket for LE Audio CIS/BIS packets.
+    #[cfg(all(target_os = "linux", feature = "le-audio"))]
+    pub fn open_raw_iso(&self, device: u16) -> Result<RawHciSocket> {
+        raw_hci::open_iso(device)
+    }
+
+    /// Protocol capabilities compiled for this target and feature set.
+    pub const fn protocol_capabilities() -> ProtocolCapabilities {
+        ProtocolCapabilities::current()
+    }
+    /// Listen for Linux Bluetooth Classic L2CAP connections on a PSM.
+    #[cfg(all(feature = "classic-l2cap", target_os = "linux"))]
+    pub fn listen_classic_l2cap(&self, psm: ClassicPsm) -> Result<ClassicL2capListener> {
+        classic_l2cap::listen(psm)
+    }
+
+    /// Listen for Linux RFCOMM connections on a server channel.
+    #[cfg(all(feature = "rfcomm", target_os = "linux"))]
+    pub fn listen_rfcomm(&self, channel: u8) -> Result<RfcommListener> {
+        rfcomm::listen(channel)
+    }
+
     /// Open the default adapter, choosing devices with
     /// [`chooser::FirstMatch`].
     ///
@@ -892,6 +1205,9 @@ pub type AdvertisementEvent = chooser::Candidate;
 pub struct LeScanOptions {
     filters: Vec<DeviceFilter>,
     keep_repeated_devices: bool,
+    /// Report every company's manufacturer data, and the raw packet with it.
+    #[cfg(feature = "unrestricted")]
+    all_manufacturer_data: bool,
     accept_all_advertisements: bool,
 }
 
@@ -947,6 +1263,27 @@ impl LeScanOptions {
         self
     }
 
+    /// Report manufacturer data from every company, and the raw advertising
+    /// bytes along with it — [`Advertisement::raw`].
+    ///
+    /// Behind the `unrestricted` feature, and outside the Web Bluetooth model
+    /// for the same reason `Grant::all_services` is: a page names the companies
+    /// it came for, and a general scanner cannot, because showing what is on
+    /// the air is the whole job.
+    ///
+    /// Without this a scan sees only the company identifiers it asked for, and
+    /// no raw bytes at all — the packet carries every company's data, so
+    /// handing it over would make the filtering above meaningless.
+    ///
+    /// The manufacturer blocklist is not part of this and still applies.
+    ///
+    /// [`Advertisement::raw`]: webbluetooth_core::filter::Advertisement::raw
+    #[cfg(feature = "unrestricted")]
+    pub fn accept_all_manufacturer_data(mut self) -> Self {
+        self.all_manufacturer_data = true;
+        self
+    }
+
     /// Check the combination the way the specification's algorithm does,
     /// before the radio is touched.
     pub fn validate(&self) -> Result<()> {
@@ -979,6 +1316,10 @@ impl LeScanOptions {
         }
         for filter in &self.filters {
             request = request.filter(filter.clone());
+        }
+        #[cfg(feature = "unrestricted")]
+        if self.all_manufacturer_data {
+            request = request.accept_all_manufacturer_data();
         }
         request
     }

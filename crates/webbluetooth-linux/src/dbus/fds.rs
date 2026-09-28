@@ -67,6 +67,7 @@ const CONTROL_CAPACITY: usize = 256;
 unsafe extern "C" {
     fn recvmsg(fd: RawFd, msg: *mut MsgHdr, flags: i32) -> isize;
     fn close(fd: RawFd) -> i32;
+    fn dup(fd: RawFd) -> RawFd;
 }
 
 /// Round up to the alignment `cmsghdr` uses, which is the platform word.
@@ -152,6 +153,16 @@ pub fn recv_with_fds(fd: RawFd, buffer: &mut [u8]) -> std::io::Result<Option<Rec
 /// `fd` must be one received here and not already closed.
 pub unsafe fn close_raw(fd: RawFd) {
     unsafe { close(fd) };
+}
+
+/// Duplicate a received descriptor before handing it to a long-lived object.
+pub fn duplicate(fd: RawFd) -> std::io::Result<RawFd> {
+    let duplicate = unsafe { dup(fd) };
+    if duplicate < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(duplicate)
+    }
 }
 
 /// Descriptors received but not yet claimed by a message.
@@ -271,5 +282,21 @@ mod tests {
         pending.push([3]);
         assert_eq!(pending.take(3), vec![1, 2, 3]);
         assert!(pending.is_empty(), "or dropping it would close 1, 2 and 3");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn duplicate_creates_an_independent_descriptor() {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        let (left, _right) = std::os::unix::net::UnixStream::pair().unwrap();
+        let duplicate = duplicate(left.as_raw_fd()).unwrap();
+        let duplicate_file = unsafe { std::fs::File::from_raw_fd(duplicate) };
+        drop(duplicate_file);
+        assert!(left.peer_addr().is_ok());
+    }
+
+    #[test]
+    fn duplicate_rejects_invalid_descriptors() {
+        assert!(duplicate(-1).is_err());
     }
 }

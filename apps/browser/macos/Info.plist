@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>webbluetooth-browser</string>
+	<key>CFBundleIdentifier</key>
+	<string>rs.webbluetooth.browser</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>WebBluetooth Browser</string>
+	<key>CFBundleDisplayName</key>
+	<string>WebBluetooth Browser</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>10.15</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<!-- Without this the process is reported Unauthorized and is never
+	     prompted, so every page would see getAvailability() answer false. -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Websites you visit in this browser ask to connect to nearby Bluetooth devices. You choose which device each site may use.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Websites you visit in this browser ask to connect to nearby Bluetooth devices. You choose which device each site may use.</string>
+	<!-- This is a browser: it loads whatever the user types, including plain
+	     http:// origins that App Transport Security blocks by default. The
+	     exemption is scoped to web content rather than the whole process. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

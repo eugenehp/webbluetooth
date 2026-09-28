@@ -25,6 +25,8 @@ pub mod dbus;
 /// LE scanning. The advertising-data parser is portable; only the raw socket
 /// inside it is Linux-only.
 pub mod hci;
+#[cfg(all(target_os = "linux", any(feature = "raw-acl", feature = "raw-sco")))]
+pub mod raw_hci;
 
 // The adapter: BlueZ expressed as the portable model.
 #[cfg(target_os = "linux")]
@@ -45,6 +47,10 @@ pub mod peripheral_backend;
 // feature that selects it. Two adapters that are only ever built one at a
 // time are two adapters that drift, and this one is the one almost nobody
 // builds.
+#[cfg(all(feature = "profiles", feature = "classic-l2cap", target_os = "linux"))]
+pub mod a2dp;
+#[cfg(all(feature = "profiles", feature = "rfcomm", target_os = "linux"))]
+pub mod avrcp;
 #[cfg(target_os = "linux")]
 // Public so `webbluetooth` can reach it, and not an API anyone else
 // should call: the facade is what a caller holds. Hidden from the docs
@@ -54,9 +60,34 @@ pub mod peripheral_backend;
 pub mod backend_hci;
 #[cfg(target_os = "linux")]
 pub mod bluez;
+#[cfg(all(
+    target_os = "linux",
+    feature = "classic",
+    any(feature = "rfcomm", feature = "classic-l2cap")
+))]
+pub mod classic_profile;
+#[cfg(all(feature = "profiles", feature = "rfcomm", target_os = "linux"))]
+pub mod dun;
 #[cfg(target_os = "linux")]
 pub mod gatt;
+#[cfg(all(feature = "profiles", feature = "rfcomm", target_os = "linux"))]
+pub mod hfp;
+#[cfg(all(target_os = "linux", feature = "profiles", feature = "classic-l2cap"))]
+pub mod hid_host;
 #[cfg(target_os = "linux")]
 pub mod l2cap;
+#[cfg(all(target_os = "linux", feature = "classic-l2cap"))]
+pub mod l2cap_classic;
+#[cfg(all(feature = "profiles", feature = "rfcomm", target_os = "linux"))]
+pub mod obex;
+#[cfg(all(feature = "profiles", feature = "classic-l2cap", target_os = "linux"))]
+pub mod pan;
+#[cfg(target_os = "linux")]
+#[cfg(feature = "classic")]
+#[cfg(feature = "rfcomm")]
+#[cfg(feature = "rfcomm")]
+pub mod rfcomm;
+#[cfg(all(feature = "classic", target_os = "linux"))]
+pub mod sdp;
 #[cfg(target_os = "linux")]
 pub mod sys;

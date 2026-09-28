@@ -234,6 +234,51 @@ impl Adapter {
         )
     }
 
+    /// Return addresses of devices in `BluetoothAdapter.getBondedDevices()`.
+    pub fn bonded_device_addresses(&self, env: Env) -> Result<Vec<String>> {
+        let bonded = call_object(
+            env,
+            self.as_ptr(),
+            "getBondedDevices",
+            "()Ljava/util/Set;",
+            &[],
+        )?;
+        let iterator = call_object(env, bonded, "iterator", "()Ljava/util/Iterator;", &[])?;
+        let iterator_class = env.get_object_class(iterator);
+        let has_next = env
+            .method_id(iterator_class, "hasNext", "()Z")
+            .ok_or_else(|| Error::MissingMethod("Iterator.hasNext".into()))?;
+        let next = env
+            .method_id(iterator_class, "next", "()Ljava/lang/Object;")
+            .ok_or_else(|| Error::MissingMethod("Iterator.next".into()))?;
+        let mut addresses = Vec::new();
+        while env.call_bool(iterator, has_next, &[]) {
+            let device = env.call_object(iterator, next, &[]);
+            if let Some(address) = device_address(env, device) {
+                addresses.push(address);
+            }
+        }
+        Ok(addresses)
+    }
+
+    /// Read service UUIDs reported by `BluetoothDevice.getUuids()`.
+    pub fn device_service_uuids(&self, env: Env, device: JObject) -> Result<Vec<String>> {
+        let uuids = call_object(env, device, "getUuids", "()[Landroid/os/ParcelUuid;", &[])?;
+        if uuids.is_null() {
+            return Ok(Vec::new());
+        }
+        let mut result = Vec::new();
+        let array = uuids as crate::jni::JArray;
+        for index in 0..env.array_length(array) {
+            let parcel = env.object_array_element(array, index);
+            let uuid = call_object(env, parcel, "getUuid", "()Ljava/util/UUID;", &[])?;
+            if let Some(value) = uuid_string(env, uuid) {
+                result.push(value);
+            }
+        }
+        Ok(result)
+    }
+
     /// `adapter.getBluetoothLeAdvertiser()` — null where advertising is
     /// unsupported, which is common on older or cheaper hardware.
     pub fn advertiser(&self, env: Env) -> Result<JObject> {
@@ -678,6 +723,31 @@ pub fn create_l2cap_channel(env: Env, device: JObject, psm: i32) -> Result<JObje
     )
 }
 
+/// `device.createL2capSocket(psm)` for a Bluetooth Classic L2CAP socket.
+#[cfg(feature = "classic-l2cap")]
+pub fn create_classic_l2cap_socket(env: Env, device: JObject, psm: i32) -> Result<JObject> {
+    call_object(
+        env,
+        device,
+        "createL2capSocket",
+        "(I)Landroid/bluetooth/BluetoothSocket;",
+        &[JValue::int(psm)],
+    )
+}
+
+/// `device.createRfcommSocketToServiceRecord(uuid)`.
+#[cfg(feature = "rfcomm")]
+pub fn create_rfcomm_socket(env: Env, device: JObject, service_uuid: &str) -> Result<JObject> {
+    let service_uuid = uuid(env, service_uuid)?;
+    call_object(
+        env,
+        device,
+        "createRfcommSocketToServiceRecord",
+        "(Ljava/util/UUID;)Landroid/bluetooth/BluetoothSocket;",
+        &[JValue::object(service_uuid)],
+    )
+}
+
 pub fn socket_connect(env: Env, socket: JObject) -> Result<()> {
     call_void(env, socket, "connect", "()V", &[])
 }
@@ -1063,6 +1133,71 @@ pub fn device_address(env: Env, device: JObject) -> Option<String> {
     env.get_string(s)
 }
 
+#[cfg(feature = "classic")]
+pub fn start_classic_discovery(env: Env, adapter: JObject) -> Result<()> {
+    if call_bool(env, adapter, "startDiscovery", "()Z", &[])? {
+        Ok(())
+    } else {
+        Err(Error::MissingMethod(
+            "BluetoothAdapter.startDiscovery returned false".into(),
+        ))
+    }
+}
+
+#[cfg(feature = "classic")]
+pub fn cancel_classic_discovery(env: Env, adapter: JObject) -> Result<()> {
+    call_bool(env, adapter, "cancelDiscovery", "()Z", &[]).map(|_| ())
+}
+
+#[cfg(feature = "classic")]
+pub fn classic_discovery_filter(env: Env) -> Result<JObject> {
+    let class = env
+        .find_class("android/content/IntentFilter")
+        .ok_or_else(|| Error::MissingClass("android.content.IntentFilter".into()))?;
+    let ctor = env
+        .method_id(class, "<init>", "()V")
+        .ok_or_else(|| missing("IntentFilter.<init>"))?;
+    let filter = env.new_object(class, ctor, &[]);
+    for action in [
+        "android.bluetooth.device.action.FOUND",
+        "android.bluetooth.adapter.action.DISCOVERY_STARTED",
+        "android.bluetooth.adapter.action.DISCOVERY_FINISHED",
+    ] {
+        let action = env.new_string(action);
+        call_void(
+            env,
+            filter,
+            "addAction",
+            "(Ljava/lang/String;)V",
+            &[JValue::object(action)],
+        )?;
+    }
+    Ok(filter)
+}
+
+#[cfg(feature = "classic")]
+pub fn register_classic_receiver(env: Env, receiver: JObject, filter: JObject) -> Result<()> {
+    call_object(
+        env,
+        Runtime::get().ok_or(Error::NoContext)?.context(),
+        "registerReceiver",
+        "(Landroid/content/BroadcastReceiver;Landroid/content/IntentFilter;)Landroid/content/Intent;",
+        &[JValue::object(receiver), JValue::object(filter)],
+    )
+    .map(|_| ())
+}
+
+#[cfg(feature = "classic")]
+pub fn unregister_classic_receiver(env: Env, receiver: JObject) -> Result<()> {
+    call_void(
+        env,
+        Runtime::get().ok_or(Error::NoContext)?.context(),
+        "unregisterReceiver",
+        "(Landroid/content/BroadcastReceiver;)V",
+        &[JValue::object(receiver)],
+    )
+}
+
 // ── Advertising ─────────────────────────────────────────────────────────────
 
 /// Start advertising.
@@ -1180,6 +1315,24 @@ fn build_advertise_data(env: Env, include_name: bool, service_uuids: &[String]) 
 }
 
 // ── L2CAP, listening side ───────────────────────────────────────────────────
+
+/// `adapter.listenUsingRfcommWithServiceRecord(name, uuid)`.
+pub fn listen_rfcomm(
+    env: Env,
+    adapter: JObject,
+    name: &str,
+    service_uuid: &str,
+) -> Result<JObject> {
+    let service_uuid = uuid(env, service_uuid)?;
+    let name = env.new_string(name);
+    call_object(
+        env,
+        adapter,
+        "listenUsingRfcommWithServiceRecord",
+        "(Ljava/lang/String;Ljava/util/UUID;)Landroid/bluetooth/BluetoothServerSocket;",
+        &[JValue::object(name), JValue::object(service_uuid)],
+    )
+}
 
 /// `adapter.listenUsingInsecureL2capChannel()` — API 29+.
 ///

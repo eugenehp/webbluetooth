@@ -43,6 +43,22 @@ fn have_bus() -> bool {
         || std::env::var("DBUS_SYSTEM_BUS_ADDRESS").is_ok()
 }
 
+#[cfg(feature = "classic")]
+#[test]
+fn bluez_registers_and_unregisters_a_classic_profile() {
+    if !have_bus() {
+        return;
+    }
+    let _mock = exclusive();
+    let bluetooth = Bluetooth::new();
+    let registration = block_on(bluetooth.register_classic_profile(
+        BluetoothUuid::from_u16(0x1101),
+        webbluetooth::ClassicSecurity::Authentication,
+    ))
+    .expect("RegisterProfile failed against the mock BlueZ");
+    drop(registration);
+}
+
 /// Scan for the mock device and take the grant.
 async fn granted() -> Result<(Bluetooth, webbluetooth::BluetoothDevice)> {
     let bluetooth = Bluetooth::new();

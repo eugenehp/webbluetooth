@@ -355,6 +355,8 @@ mod tests {
 
     fn advertisement(uuids: &[u16]) -> Advertisement {
         Advertisement {
+            #[cfg(feature = "classic")]
+            class_of_device: None,
             service_uuids: uuids.iter().map(|u| BluetoothUuid::from_u16(*u)).collect(),
             ..Default::default()
         }

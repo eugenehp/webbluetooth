@@ -9,10 +9,11 @@ members = [
     "crates/webbluetooth-wasm",
     "crates/webbluetooth-windows",
     "crates/webbluetooth",
+    "apps/webbluetooth-explorer",
 ]
 
 [workspace.package]
-version    = "0.0.1"
+version    = "0.0.2"
 edition    = "2021"
 license    = "MIT"
 repository = "https://github.com/eugenehp/webbluetooth"

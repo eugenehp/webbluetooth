@@ -78,11 +78,17 @@ apple() {
 
     if rustup component list --toolchain nightly 2>/dev/null | grep -q '^rust-src (installed)'; then
         step "apple — tier 3 (nightly, build-std)"
+        # Without the explorer. winit has no backend for tvOS, watchOS or
+        # visionOS and falls through to its Unix one, so eframe drags in
+        # wayland and x11 and the build dies inside them. That is a winit
+        # limitation and nothing these crates can answer for; the library is
+        # what has to compile on every Apple target, and it is what does.
         for t in aarch64-apple-tvos aarch64-apple-tvos-sim aarch64-apple-watchos \
                  aarch64-apple-watchos-sim arm64_32-apple-watchos \
                  aarch64-apple-visionos aarch64-apple-visionos-sim; do
             try "$t" cargo +nightly clippy -Z build-std=std,panic_abort \
-                --workspace --all-targets --all-features --target "$t"
+                --workspace --exclude webbluetooth-explorer \
+                --all-targets --all-features --target "$t"
         done
     else
         step "apple — tier 3 skipped"

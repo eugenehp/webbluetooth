@@ -40,11 +40,22 @@ futures-executor = "0.3"
 
 [features]
 default = []
+## Portable Bluetooth Classic types and transport endpoint validation.
+classic = []
+rfcomm = ["classic"]
+classic-l2cap = ["classic"]
+profiles = []
+mesh = []
+raw-acl = []
+raw-sco = []
+le-audio = []
 ## Mirrors `webbluetooth`'s feature of the same name, so the portable layer
 ## agrees with the backend about which Linux transport is in use.
 linux-hci = []
 ## Mirrors `webbluetooth`'s feature of the same name: builds `TerminalChooser`.
 terminal-chooser = []
+## Mirrors `webbluetooth`'s feature of the same name: `Grant::all_services`.
+unrestricted = []
 ## Mirrors `webbluetooth`'s feature of the same name: conversions to and from
 ## the `uuid` crate.
 uuid = ["dep:uuid"]

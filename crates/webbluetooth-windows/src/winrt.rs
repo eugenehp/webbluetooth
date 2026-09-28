@@ -19,8 +19,14 @@ use std::ffi::c_void;
 /// An `HSTRING`.
 pub type HString = *mut c_void;
 
+// These six live in `combase.dll` at runtime, but the Windows SDK ships no
+// `combase.lib` to import them from — naming the DLL here fails the link with
+// `LNK1181: cannot open input file 'combase.lib'` (and the lld-link spelling,
+// `could not open 'combase.lib'`). `runtimeobject.lib` is the SDK import
+// library that resolves the WinRT string and activation exports, so the lib
+// name and the DLL name deliberately differ.
 #[cfg(windows)]
-#[link(name = "combase")]
+#[link(name = "runtimeobject")]
 unsafe extern "system" {
     fn WindowsCreateString(source: *const u16, length: u32, out: *mut HString) -> Hresult;
     fn WindowsDeleteString(string: HString) -> Hresult;

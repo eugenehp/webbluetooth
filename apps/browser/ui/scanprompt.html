@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Scan for devices</title>
+    <link rel="stylesheet" href="chooser.css" />
+    <link rel="stylesheet" href="scanprompt.css" />
+  </head>
+  <body>
+    <header>
+      <p class="lede">
+        <strong id="origin">A site</strong> wants to see nearby Bluetooth
+        devices
+      </p>
+      <p id="wants" class="wants"></p>
+    </header>
+
+    <div class="body">
+      <p class="warn">
+        This is broader than pairing. The site will receive every matching
+        advertisement in range, continuously, including from devices you have
+        not chosen and cannot see — until you leave the page.
+      </p>
+      <p class="small">
+        It still cannot connect to anything: reaching a device's data needs a
+        separate pairing you pick from a list.
+      </p>
+    </div>
+
+    <footer>
+      <span class="grow"></span>
+      <button id="block">Don’t allow</button>
+      <button id="allow" class="primary">Allow scanning</button>
+    </footer>
+
+    <script src="scanprompt.js"></script>
+  </body>
+</html>

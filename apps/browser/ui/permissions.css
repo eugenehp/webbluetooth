@@ -1,0 +1,154 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f6f6f9;
+  --panel: #ffffff;
+  --line: #e2e2e8;
+  --text: #16161a;
+  --muted: #6b6b76;
+  --accent: #0082fc;
+  --danger: #c8341f;
+  --ok: #1a9c4e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1a1f;
+    --panel: #242429;
+    --line: #37373f;
+    --text: #f1f1f4;
+    --muted: #9a9aa5;
+    --accent: #4aa5ff;
+    --danger: #ff6b55;
+    --ok: #4fce85;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 18px 18px 28px;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  user-select: none;
+  cursor: default;
+}
+
+h1 {
+  margin: 0 0 3px;
+  font-size: 16px;
+}
+
+.sub {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.origin {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  margin-bottom: 9px;
+  overflow: hidden;
+}
+
+.origin > .head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--line);
+}
+
+.origin .name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-size: 10.5px;
+  background: color-mix(in srgb, var(--muted) 22%, transparent);
+  color: var(--muted);
+}
+
+.badge.on {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--text);
+}
+
+.badge.off {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: var(--text);
+}
+
+.device {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 11px;
+}
+
+.device + .device {
+  border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.dot.connected {
+  background: var(--ok);
+}
+
+.device .label {
+  flex: 1;
+  min-width: 0;
+}
+
+.device .id {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+
+button {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  border-radius: 6px;
+  padding: 3px 9px;
+  font: inherit;
+  font-size: 11.5px;
+  flex: none;
+  cursor: default;
+}
+
+button:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 28px 0;
+}
+
+.empty[hidden] {
+  display: none;
+}

@@ -526,7 +526,9 @@ fn attach(shared: &Arc<Shared>, message: &mut Message, fds: Vec<std::os::fd::Raw
     if fds.is_empty() {
         return;
     }
-    if let Some(serial) = message.reply_serial {
+    if message.message_type == MessageType::MethodCall {
+        message.received_fds = fds;
+    } else if let Some(serial) = message.reply_serial {
         shared.received_fds.lock().unwrap().insert(serial, fds);
     } else {
         // Nothing to hand them to. Closing beats leaking an open file that

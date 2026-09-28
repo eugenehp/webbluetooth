@@ -8,8 +8,17 @@ use std::ffi::c_int;
 
 pub const AF_BLUETOOTH: c_int = 31;
 pub const SOCK_SEQPACKET: c_int = 5;
+pub const SOCK_STREAM: c_int = 1;
 pub const SOCK_RAW: c_int = 3;
 pub const BTPROTO_L2CAP: c_int = 0;
+pub const BTPROTO_RFCOMM: c_int = 3;
+pub const SOL_BLUETOOTH: c_int = 274;
+pub const BT_SECURITY: c_int = 4;
+pub const BT_SECURITY_SDP: u8 = 0;
+pub const BT_SECURITY_LOW: u8 = 1;
+pub const BT_SECURITY_MEDIUM: u8 = 2;
+pub const BT_SECURITY_HIGH: u8 = 3;
+pub const BT_SECURITY_FIPS: u8 = 4;
 pub const BTPROTO_HCI: c_int = 1;
 pub const BDADDR_LE_PUBLIC: u8 = 1;
 /// `BDADDR_ANY` — let the kernel pick the adapter.
@@ -25,7 +34,48 @@ unsafe extern "C" {
     pub fn write(fd: c_int, buf: *const u8, count: usize) -> isize;
     pub fn close(fd: c_int) -> c_int;
     pub fn shutdown(fd: c_int, how: c_int) -> c_int;
+    /// `setsockopt`, under a name that says which options this crate sets with
+    /// it. `*const c_void` because the option value differs per level — a
+    /// `bt_security` here, an `hci_filter` in [`crate::hci`] — and two extern
+    /// declarations of one symbol with two signatures is a hard error.
+    #[link_name = "setsockopt"]
+    pub fn bluetooth_setsockopt(
+        fd: c_int,
+        level: c_int,
+        option: c_int,
+        value: *const core::ffi::c_void,
+        length: u32,
+    ) -> c_int;
     fn __errno_location() -> *mut c_int;
+}
+
+/// Configure the Linux Bluetooth security level for a Classic socket.
+#[cfg(feature = "classic")]
+pub fn set_classic_security(
+    fd: c_int,
+    security: webbluetooth_core::classic::ClassicSecurity,
+) -> Result<(), i32> {
+    let level = match security {
+        webbluetooth_core::classic::ClassicSecurity::None => BT_SECURITY_SDP,
+        webbluetooth_core::classic::ClassicSecurity::Authentication => BT_SECURITY_LOW,
+        webbluetooth_core::classic::ClassicSecurity::Encryption => BT_SECURITY_MEDIUM,
+        webbluetooth_core::classic::ClassicSecurity::SecureEncryption => BT_SECURITY_FIPS,
+    };
+    let value = [level, 0];
+    let result = unsafe {
+        bluetooth_setsockopt(
+            fd,
+            SOL_BLUETOOTH,
+            BT_SECURITY,
+            value.as_ptr().cast(),
+            value.len() as u32,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(errno())
+    }
 }
 
 /// The current `errno`.
@@ -47,13 +97,25 @@ pub struct SockAddrL2 {
     pub bdaddr_type: u8,
 }
 
+/// `struct sockaddr_rc` from `bluetooth/rfcomm.h`.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub struct SockAddrRc {
+    pub family: u16,
+    pub bdaddr: [u8; 6],
+    pub channel: u8,
+}
+
 unsafe extern "C" {
     pub fn connect(fd: c_int, addr: *const SockAddrL2, len: u32) -> c_int;
+    pub fn listen(fd: c_int, backlog: c_int) -> c_int;
+    pub fn accept(fd: c_int, addr: *mut core::ffi::c_void, len: *mut u32) -> c_int;
     /// Takes a `*const c_void` because both socket families here bind with
     /// their own `sockaddr` shape, and one extern declaration has to serve
     /// both — two declarations of the same symbol with different pointer
     /// types do not compile.
     pub fn bind(fd: c_int, addr: *const core::ffi::c_void, len: u32) -> c_int;
+    pub fn getsockname(fd: c_int, addr: *mut core::ffi::c_void, len: *mut u32) -> c_int;
     fn poll(fds: *mut PollFd, nfds: core::ffi::c_ulong, timeout: c_int) -> c_int;
 }
 
