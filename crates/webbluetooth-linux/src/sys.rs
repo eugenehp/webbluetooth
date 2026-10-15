@@ -4,7 +4,7 @@
 //! layout, the address parsing and the libc externs live once rather than once
 //! per transport.
 
-use std::ffi::c_int;
+use std::ffi::{c_int, c_void};
 
 pub const AF_BLUETOOTH: c_int = 31;
 pub const SOCK_SEQPACKET: c_int = 5;
@@ -14,6 +14,8 @@ pub const BTPROTO_L2CAP: c_int = 0;
 pub const BTPROTO_RFCOMM: c_int = 3;
 pub const SOL_BLUETOOTH: c_int = 274;
 pub const BT_SECURITY: c_int = 4;
+/// Only meaningful on the SDP channel; see [`set_classic_security`].
+#[allow(dead_code)]
 pub const BT_SECURITY_SDP: u8 = 0;
 pub const BT_SECURITY_LOW: u8 = 1;
 pub const BT_SECURITY_MEDIUM: u8 = 2;
@@ -27,11 +29,21 @@ pub const BDADDR_LE_RANDOM: u8 = 2;
 pub const SHUT_RDWR: c_int = 2;
 /// `EINTR` — a syscall interrupted by a signal, which is a retry not a failure.
 pub const EINTR: i32 = 4;
+/// Something else already holds the resource — see `gatt::connect_error`.
+pub const EBUSY: i32 = 16;
+/// How Linux reports the peer closing an RFCOMM channel with a DISC frame.
+pub const ECONNRESET: i32 = 104;
 
 unsafe extern "C" {
     pub fn socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int;
-    pub fn read(fd: c_int, buf: *mut u8, count: usize) -> isize;
-    pub fn write(fd: c_int, buf: *const u8, count: usize) -> isize;
+    // Declared with libc's own `void *`, under other names. Newer compilers
+    // check declarations of `read` and `write` against the signatures the
+    // standard library links to, and a `u8` pointer, though ABI-identical, is
+    // reported as suspicious to every crate that builds this one.
+    #[link_name = "read"]
+    fn libc_read(fd: c_int, buf: *mut c_void, count: usize) -> isize;
+    #[link_name = "write"]
+    fn libc_write(fd: c_int, buf: *const c_void, count: usize) -> isize;
     pub fn close(fd: c_int) -> c_int;
     pub fn shutdown(fd: c_int, how: c_int) -> c_int;
     /// `setsockopt`, under a name that says which options this crate sets with
@@ -49,6 +61,22 @@ unsafe extern "C" {
     fn __errno_location() -> *mut c_int;
 }
 
+/// `read(2)` into a byte buffer.
+///
+/// # Safety
+/// `buf` must be valid for `count` bytes of writes.
+pub unsafe fn read(fd: c_int, buf: *mut u8, count: usize) -> isize {
+    unsafe { libc_read(fd, buf.cast(), count) }
+}
+
+/// `write(2)` from a byte buffer.
+///
+/// # Safety
+/// `buf` must be valid for `count` bytes of reads.
+pub unsafe fn write(fd: c_int, buf: *const u8, count: usize) -> isize {
+    unsafe { libc_write(fd, buf.cast(), count) }
+}
+
 /// Configure the Linux Bluetooth security level for a Classic socket.
 #[cfg(feature = "classic")]
 pub fn set_classic_security(
@@ -56,7 +84,15 @@ pub fn set_classic_security(
     security: webbluetooth_core::classic::ClassicSecurity,
 ) -> Result<(), i32> {
     let level = match security {
-        webbluetooth_core::classic::ClassicSecurity::None => BT_SECURITY_SDP,
+        // Not `BT_SECURITY_SDP`, though that is the numerically lowest level:
+        // the kernel reserves it for the SDP channel itself. On any other PSM
+        // it asks for a link with no SSP pairing at all, which an SSP peer —
+        // every controller since Bluetooth 2.1 — answers by refusing the
+        // channel: `ECONNREFUSED` on a cold link, success only if some earlier
+        // connection happened to leave an authenticated link up. `LOW` is the
+        // kernel's own default for these sockets and the least it will
+        // actually connect with.
+        webbluetooth_core::classic::ClassicSecurity::None => BT_SECURITY_LOW,
         webbluetooth_core::classic::ClassicSecurity::Authentication => BT_SECURITY_LOW,
         webbluetooth_core::classic::ClassicSecurity::Encryption => BT_SECURITY_MEDIUM,
         webbluetooth_core::classic::ClassicSecurity::SecureEncryption => BT_SECURITY_FIPS,
@@ -98,7 +134,14 @@ pub struct SockAddrL2 {
 }
 
 /// `struct sockaddr_rc` from `bluetooth/rfcomm.h`.
-#[repr(C, packed)]
+///
+/// **Not** packed, unlike [`SockAddrL2`]: the kernel's struct is plain, so it
+/// is 2 + 6 + 1 = 9 bytes of fields and 10 with the trailing padding, and
+/// `rfcomm_sock_connect` refuses any length below `sizeof(struct sockaddr_rc)`
+/// with `EINVAL`. Packed, this was 9, so every outbound RFCOMM connection
+/// failed before reaching the radio — while `bind`, which tolerates a short
+/// address, worked, and made the listener look fine.
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct SockAddrRc {
     pub family: u16,
@@ -237,6 +280,17 @@ pub fn bind_le_source(fd: c_int, psm: u16, cid: u16) -> Result<(), i32> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_rfcomm_socket_address_matches_the_kernel_layout() {
+        // Offsets as in `struct sockaddr_rc`, and its padded size: a length
+        // below 10 is refused by `connect` with EINVAL.
+        assert_eq!(std::mem::size_of::<SockAddrRc>(), 10);
+        assert_eq!(std::mem::offset_of!(SockAddrRc, family), 0);
+        assert_eq!(std::mem::offset_of!(SockAddrRc, bdaddr), 2);
+        assert_eq!(std::mem::offset_of!(SockAddrRc, channel), 8);
+    }
+
     use super::*;
 
     #[test]

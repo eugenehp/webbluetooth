@@ -48,7 +48,9 @@ pub struct Channel {
     fd: Arc<Socket>,
     /// Serialises writes; a partial write must not interleave with another.
     writing: Mutex<VecDeque<u8>>,
-    closed: Mutex<Option<Closed>>,
+    /// Shared with the reader thread, which records why the channel ended
+    /// before telling anyone — so `closed()` agrees with `on_close()`.
+    closed: Arc<Mutex<Option<Closed>>>,
     stopped: Arc<AtomicBool>,
 }
 
@@ -94,14 +96,15 @@ impl Channel {
         }
 
         let stopped = Arc::new(AtomicBool::new(false));
-        spawn_reader(socket.clone(), sink, stopped.clone(), psm);
+        let closed = Arc::new(Mutex::new(None));
+        spawn_reader(socket.clone(), sink, stopped.clone(), closed.clone(), psm);
 
         Ok(Self {
             psm,
             peer: address.to_owned(),
             fd: socket,
             writing: Mutex::new(VecDeque::new()),
-            closed: Mutex::new(None),
+            closed,
             stopped,
         })
     }
@@ -110,13 +113,14 @@ impl Channel {
     pub fn adopt_fd(fd: c_int, psm: Psm, peer: String, sink: Arc<dyn ChannelSink>) -> Self {
         let socket = Arc::new(Socket(fd));
         let stopped = Arc::new(AtomicBool::new(false));
-        spawn_reader(socket.clone(), sink, stopped.clone(), psm);
+        let closed = Arc::new(Mutex::new(None));
+        spawn_reader(socket.clone(), sink, stopped.clone(), closed.clone(), psm);
         Self {
             psm,
             peer,
             fd: socket,
             writing: Mutex::new(VecDeque::new()),
-            closed: Mutex::new(None),
+            closed,
             stopped,
         }
     }
@@ -196,6 +200,7 @@ fn spawn_reader(
     socket: Arc<Socket>,
     sink: Arc<dyn ChannelSink>,
     stopped: Arc<AtomicBool>,
+    closed: Arc<Mutex<Option<Closed>>>,
     psm: Psm,
 ) {
     std::thread::Builder::new()
@@ -220,6 +225,8 @@ fn spawn_reader(
                     }
                 }
             };
+            // First reason wins: a local close already recorded stays.
+            let reason = closed.lock().unwrap().get_or_insert(reason).clone();
             sink.on_closed(reason);
         })
         .expect("could not start the L2CAP reader thread");

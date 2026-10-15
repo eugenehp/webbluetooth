@@ -118,6 +118,75 @@ impl RemoteGattServer {
         self.inner.disconnect(&self.id);
     }
 
+    /// Close the connection and wait until the link is actually down.
+    ///
+    /// [`disconnect`](Self::disconnect) only asks: it returns at once and the
+    /// platform reports the link gone some time later. That is all the
+    /// specification offers, and it is not enough for a caller whose next step
+    /// depends on the link being down — a device that will not accept a
+    /// Bluetooth Classic connection while its LE one is up, or a reconnect
+    /// that must not race the teardown it follows.
+    ///
+    /// Returns immediately if the device is not connected. There is no
+    /// timeout, for the same reason [`connect`](Self::connect) has none; wrap
+    /// it in [`crate::timeout`] if the platform cannot be trusted to answer.
+    ///
+    /// Not part of Web Bluetooth.
+    ///
+    /// ```no_run
+    /// # async fn example(gatt: webbluetooth::RemoteGattServer) {
+    /// gatt.disconnect_and_wait().await;
+    /// assert!(!gatt.connected());
+    /// # }
+    /// ```
+    pub async fn disconnect_and_wait(&self) {
+        use futures_util::StreamExt;
+
+        // Watching before asking, so a platform that reports the disconnect
+        // from inside the call cannot be missed.
+        let mut disconnects = self.inner.watch_disconnect(&self.id);
+        self.inner.disconnect(&self.id);
+        if self.connected() {
+            disconnects.next().await;
+        }
+    }
+
+    /// Every characteristic of every primary service the grant reaches.
+    ///
+    /// [`get_primary_services`](Self::get_primary_services) and then
+    /// [`RemoteGattService::get_characteristics`] on each, flattened — which
+    /// is the flat set `btleplug`'s `peripheral.characteristics()` returns,
+    /// and the loop every program arriving from there writes on its first
+    /// day. Each characteristic still knows its service:
+    /// [`RemoteGattCharacteristic::service_uuid`].
+    ///
+    /// A service with no accessible characteristics contributes nothing rather
+    /// than failing the call; any other failure is returned. "Every" is still
+    /// bounded by the grant and the blocklist, as it is everywhere else.
+    ///
+    /// Not part of Web Bluetooth.
+    ///
+    /// ```no_run
+    /// # async fn example(gatt: webbluetooth::RemoteGattServer) -> webbluetooth::Result<()> {
+    /// for characteristic in gatt.get_characteristics().await? {
+    ///     if characteristic.properties().notify() {
+    ///         println!("{} notifies", characteristic.uuid());
+    ///     }
+    /// }
+    /// # Ok(()) }
+    /// ```
+    pub async fn get_characteristics(&self) -> Result<Vec<RemoteGattCharacteristic>> {
+        let mut out = Vec::new();
+        for service in self.get_primary_services(None).await? {
+            match service.get_characteristics(None).await {
+                Ok(found) => out.extend(found),
+                Err(Error::NotFound(_)) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(out)
+    }
+
     /// The primary service with this UUID.
     ///
     /// `SecurityError` if the service was not listed in the `filters` or
@@ -619,11 +688,16 @@ impl RemoteGattCharacteristic {
         // Subscribe before enabling, so a notification that races the
         // acknowledgement is not lost.
         let rx = self.inner.subscribe(&self.handle);
+        // Taken before the subscription is enabled, for the same reason: a
+        // link that drops while the request is in flight is still seen.
+        let disconnects = self.inner.watch_disconnect(&self.device_id);
         self.inner
             .set_notify(&self.device_id, &self.handle, true)
             .await?;
         Ok(Notifications {
             rx,
+            disconnects,
+            ended: false,
             characteristic: self.clone(),
         })
     }
@@ -841,8 +915,18 @@ impl std::fmt::Debug for RemoteGattDescriptor {
 
 /// A stream of characteristic values, from
 /// [`RemoteGattCharacteristic::start_notifications`].
+///
+/// Ends when the device disconnects. The characteristic it belongs to is stale
+/// from that moment and can never notify again, so a stream that stayed open
+/// would be one that simply stopped: a `while let Some(..)` loop over it would
+/// wait forever on a link that is already gone. Values that arrived before the
+/// disconnect are still delivered first.
 pub struct Notifications {
     rx: crate::backlog::Receiver<Vec<u8>>,
+    /// Fires when the device this subscription belongs to disconnects.
+    disconnects: futures_channel::mpsc::UnboundedReceiver<()>,
+    /// Set once the stream has ended, so it stays ended.
+    ended: bool,
     /// Where the values come from.
     ///
     /// The specification delivers these as events, and an event carries its
@@ -1003,8 +1087,44 @@ impl std::fmt::Debug for Tagged {
 impl Stream for Notifications {
     type Item = Vec<u8>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Vec<u8>>> {
-        Pin::new(&mut self.rx).poll_next(cx)
+        let this = &mut *self;
+        poll_until_disconnect(&mut this.rx, &mut this.disconnects, &mut this.ended, cx)
     }
+}
+
+/// Yield from `values` until `disconnects` fires, then end for good.
+///
+/// Values are polled first, so everything queued before the link dropped is
+/// delivered before the stream ends. No backend closes a subscription when
+/// its device disconnects — the senders sit in a map keyed by characteristic,
+/// which says nothing about which device they belong to — so this is where
+/// the two are tied together, once, for all of them.
+fn poll_until_disconnect<V, D>(
+    values: &mut V,
+    disconnects: &mut D,
+    ended: &mut bool,
+    cx: &mut Context<'_>,
+) -> Poll<Option<Vec<u8>>>
+where
+    V: Stream<Item = Vec<u8>> + Unpin,
+    D: Stream<Item = ()> + Unpin,
+{
+    if *ended {
+        return Poll::Ready(None);
+    }
+    match Pin::new(values).poll_next(cx) {
+        Poll::Ready(Some(value)) => return Poll::Ready(Some(value)),
+        Poll::Ready(None) => {}
+        Poll::Pending => {
+            // `None` here means nothing is left to report a disconnect, which
+            // is the session going away: just as final.
+            if Pin::new(disconnects).poll_next(cx).is_pending() {
+                return Poll::Pending;
+            }
+        }
+    }
+    *ended = true;
+    Poll::Ready(None)
 }
 
 // The other handles in this file print their identity; these two were simply
@@ -1050,5 +1170,52 @@ mod tests {
         );
         assert!(descriptor_patch(vec![1], 2, &[3]).is_err());
         assert!(descriptor_patch(vec![], 0, &vec![0; MAX_ATTRIBUTE_LENGTH + 1]).is_err());
+    }
+
+    /// Drive `poll_until_disconnect` the way `Notifications` does.
+    struct Subscription {
+        values: futures_channel::mpsc::UnboundedReceiver<Vec<u8>>,
+        disconnects: futures_channel::mpsc::UnboundedReceiver<()>,
+        ended: bool,
+    }
+
+    impl Stream for Subscription {
+        type Item = Vec<u8>;
+        fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Vec<u8>>> {
+            let this = &mut *self;
+            poll_until_disconnect(&mut this.values, &mut this.disconnects, &mut this.ended, cx)
+        }
+    }
+
+    /// The bug this exists for: the link drops, the sender is still held by
+    /// the backend, and a consumer awaiting the next value waits forever.
+    #[test]
+    fn notifications_end_when_the_device_disconnects() {
+        use futures_util::StreamExt;
+
+        let (values_tx, values) = futures_channel::mpsc::unbounded();
+        let (disconnects_tx, disconnects) = futures_channel::mpsc::unbounded();
+        let mut subscription = Subscription {
+            values,
+            disconnects,
+            ended: false,
+        };
+
+        values_tx.unbounded_send(vec![1]).unwrap();
+        values_tx.unbounded_send(vec![2]).unwrap();
+        disconnects_tx.unbounded_send(()).unwrap();
+
+        futures_executor::block_on(async {
+            // What arrived before the drop is still delivered, in order.
+            assert_eq!(subscription.next().await, Some(vec![1]));
+            assert_eq!(subscription.next().await, Some(vec![2]));
+            // The sender is alive, as it is in every backend; the stream ends
+            // anyway.
+            assert_eq!(subscription.next().await, None);
+
+            // And stays ended, even if the stale characteristic says more.
+            values_tx.unbounded_send(vec![3]).unwrap();
+            assert_eq!(subscription.next().await, None);
+        });
     }
 }

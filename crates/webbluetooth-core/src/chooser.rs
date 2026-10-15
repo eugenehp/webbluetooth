@@ -53,6 +53,24 @@ impl Candidate {
         self.name.as_deref().unwrap_or(&self.id)
     }
 
+    /// Fold a later sighting of the same device into this one.
+    ///
+    /// A device says what it is over several packets — the advertisement
+    /// carries the services, the scan response often carries the name — and a
+    /// scan that keeps repeated devices reports each as it arrives. Deciding
+    /// from any one of them is deciding from a fragment; this accumulates
+    /// them. A name is kept once learned, and the advertisement is merged as
+    /// [`Advertisement::merge`] describes.
+    ///
+    /// The caller matches identifiers: this does not check that `newer` is
+    /// the same device.
+    pub fn merge(&mut self, newer: Candidate) {
+        if newer.name.is_some() {
+            self.name = newer.name;
+        }
+        self.advertisement.merge(newer.advertisement);
+    }
+
     /// Bluetooth Classic Class of Device, when the scanner reported it.
     #[cfg(feature = "classic")]
     pub fn class_of_device(&self) -> Option<crate::classic::ClassOfDevice> {
@@ -286,5 +304,39 @@ impl DeviceChooser for TerminalChooser {
             let n: usize = line.trim().parse().ok()?;
             found.get(n.checked_sub(1)?).map(|c| c.id.clone())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A name learned from a scan response must survive the next bare
+    /// advertisement, and the services from the advertisement must survive
+    /// the scan response.
+    #[test]
+    fn merging_sightings_accumulates_what_each_packet_said() {
+        let service = crate::uuid::BluetoothUuid::from_u16(0x180f);
+        let mut seen = Candidate {
+            id: "device".into(),
+            name: None,
+            advertisement: Advertisement {
+                service_uuids: vec![service],
+                ..Advertisement::default()
+            },
+        };
+        seen.merge(Candidate {
+            id: "device".into(),
+            name: Some("Named".into()),
+            advertisement: Advertisement::default(),
+        });
+        seen.merge(Candidate {
+            id: "device".into(),
+            name: None,
+            advertisement: Advertisement::default(),
+        });
+
+        assert_eq!(seen.name.as_deref(), Some("Named"));
+        assert_eq!(seen.advertisement.service_uuids, vec![service]);
     }
 }

@@ -3,7 +3,7 @@
 use crate::sys::{
     accept, bind, close, connect, errno, format_address, listen as sys_listen, parse_address, read,
     set_classic_security, shutdown, socket, write, SockAddrRc, AF_BLUETOOTH, BDADDR_ANY,
-    BTPROTO_RFCOMM, EINTR, SHUT_RDWR, SOCK_STREAM,
+    BTPROTO_RFCOMM, ECONNRESET, EINTR, SHUT_RDWR, SOCK_STREAM,
 };
 use futures_channel::mpsc;
 use futures_core::Stream;
@@ -29,7 +29,9 @@ pub struct Channel {
     peer: String,
     fd: Arc<Socket>,
     writing: Mutex<VecDeque<u8>>,
-    closed: Mutex<Option<Closed>>,
+    /// Shared with the reader thread, which records why the channel ended
+    /// before telling anyone — so `closed()` agrees with `on_close()`.
+    closed: Arc<Mutex<Option<Closed>>>,
     stopped: Arc<AtomicBool>,
 }
 
@@ -86,13 +88,20 @@ impl Channel {
             ));
         }
         let stopped = Arc::new(AtomicBool::new(false));
-        spawn_reader(socket.clone(), sink, stopped.clone(), channel);
+        let closed = Arc::new(Mutex::new(None));
+        spawn_reader(
+            socket.clone(),
+            sink,
+            stopped.clone(),
+            closed.clone(),
+            channel,
+        );
         Ok(Self {
             channel,
             peer: address.to_owned(),
             fd: socket,
             writing: Mutex::new(VecDeque::new()),
-            closed: Mutex::new(None),
+            closed,
             stopped,
         })
     }
@@ -100,13 +109,20 @@ impl Channel {
     fn adopt(fd: c_int, channel: u8, peer: String, sink: Arc<dyn ChannelSink>) -> Self {
         let socket = Arc::new(Socket(fd));
         let stopped = Arc::new(AtomicBool::new(false));
-        spawn_reader(socket.clone(), sink, stopped.clone(), channel);
+        let closed = Arc::new(Mutex::new(None));
+        spawn_reader(
+            socket.clone(),
+            sink,
+            stopped.clone(),
+            closed.clone(),
+            channel,
+        );
         Self {
             channel,
             peer,
             fd: socket,
             writing: Mutex::new(VecDeque::new()),
-            closed: Mutex::new(None),
+            closed,
             stopped,
         }
     }
@@ -174,6 +190,7 @@ fn spawn_reader(
     socket: Arc<Socket>,
     sink: Arc<dyn ChannelSink>,
     stopped: Arc<AtomicBool>,
+    closed: Arc<Mutex<Option<Closed>>>,
     channel: u8,
 ) {
     std::thread::Builder::new()
@@ -189,9 +206,15 @@ fn spawn_reader(
                     0 => break Closed::ByPeer,
                     n if n > 0 => sink.on_bytes(buf[..n as usize].to_vec()),
                     _ if errno() == EINTR => continue,
+                    // An orderly close by the peer — it sent DISC — reaches a
+                    // reader as ECONNRESET rather than end-of-file. A lost
+                    // link reports something else and stays an error.
+                    _ if errno() == ECONNRESET => break Closed::ByPeer,
                     _ => break Closed::Error(format!("RFCOMM read failed (errno {})", errno())),
                 }
             };
+            // First reason wins: a local close already recorded stays.
+            let reason = closed.lock().unwrap().get_or_insert(reason).clone();
             sink.on_closed(reason);
         })
         .expect("could not start the RFCOMM reader thread");
@@ -336,4 +359,38 @@ pub fn listen(channel: u8) -> webbluetooth_core::Result<RfcommListener> {
         fd: socket,
         incoming: rx,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    unsafe extern "C" {
+        fn socketpair(domain: c_int, ty: c_int, protocol: c_int, sv: *mut c_int) -> c_int;
+    }
+
+    /// The reader thread sees the peer go; `closed()` has to say so too, not
+    /// only `on_close()`. A Unix socket pair stands in for the radio: the code
+    /// under test reads a file descriptor and does not care what is behind it.
+    #[test]
+    fn closed_reports_the_peer_closing() {
+        let mut fds = [0 as c_int; 2];
+        // 1 is AF_UNIX.
+        assert_eq!(
+            unsafe { socketpair(1, SOCK_STREAM, 0, fds.as_mut_ptr()) },
+            0
+        );
+        let (channel_sink, sink, incoming) = webbluetooth_core::l2cap::sink();
+        let channel = RfcommChannel::new(
+            Channel::adopt_fd(fds[0], 7, "peer".into(), channel_sink),
+            sink,
+            incoming,
+        );
+        assert_eq!(channel.closed(), None);
+
+        unsafe { close(fds[1]) };
+        let reason = futures_executor::block_on(channel.on_close());
+        assert_eq!(reason, Closed::ByPeer);
+        assert_eq!(channel.closed(), Some(Closed::ByPeer));
+    }
 }

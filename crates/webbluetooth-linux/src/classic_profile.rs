@@ -5,6 +5,7 @@ use crate::dbus::Connection;
 use crate::dbus::{Message, Value};
 #[cfg(feature = "classic-l2cap")]
 use crate::l2cap_classic::{Channel as ClassicL2capChannelImpl, ClassicL2capChannel};
+#[cfg(feature = "rfcomm")]
 use crate::rfcomm::{Channel, RfcommChannel};
 use futures_channel::mpsc;
 use futures_core::Stream;
@@ -18,6 +19,7 @@ static NEXT_PROFILE: AtomicUsize = AtomicUsize::new(0);
 /// A channel accepted by a registered BlueZ Classic profile.
 pub enum ProfileChannel {
     /// RFCOMM profile connection.
+    #[cfg(feature = "rfcomm")]
     Rfcomm(RfcommChannel),
     /// Classic L2CAP profile connection.
     #[cfg(feature = "classic-l2cap")]
@@ -44,6 +46,7 @@ impl Stream for ProfileRegistration {
 
 impl ProfileRegistration {
     /// Register an RFCOMM profile with BlueZ.
+    #[cfg(feature = "rfcomm")]
     pub fn register(
         bluez: &Bluez,
         service: BluetoothUuid,
@@ -53,6 +56,7 @@ impl ProfileRegistration {
     }
 
     /// Register an RFCOMM profile with BlueZ.
+    #[cfg(feature = "rfcomm")]
     pub fn register_rfcomm(
         bluez: &Bluez,
         service: BluetoothUuid,
@@ -62,6 +66,7 @@ impl ProfileRegistration {
     }
 
     /// Register RFCOMM on a specific server channel.
+    #[cfg(feature = "rfcomm")]
     pub fn register_rfcomm_channel(
         bluez: &Bluez,
         service: BluetoothUuid,
@@ -186,15 +191,23 @@ fn service_record(service: BluetoothUuid, transport: Transport) -> Vec<u8> {
     let service_class = sequence(uuid_element(service));
     let mut protocol = Vec::new();
     let l2cap = sequence({
+        // The variant exists only with `classic-l2cap`; an RFCOMM-only build
+        // has no PSM to publish.
+        #[cfg_attr(not(feature = "classic-l2cap"), allow(unused_mut))]
         let mut body = uuid_element(BluetoothUuid::from_u16(0x0100));
+        // Irrefutable in a build with no RFCOMM, where it is the only transport.
+        #[cfg(feature = "classic-l2cap")]
+        #[allow(irrefutable_let_patterns)]
         if let Transport::ClassicL2cap(psm) = transport {
             body.extend(uint16(psm.get()));
         }
         body
     });
     protocol.extend(l2cap);
-    let rfcomm_channel = match transport {
+    let rfcomm_channel: Option<u8> = match transport {
+        #[cfg(feature = "rfcomm")]
         Transport::Rfcomm => Some(0),
+        #[cfg(feature = "rfcomm")]
         Transport::RfcommChannel(channel) => Some(channel),
         #[cfg(feature = "classic-l2cap")]
         Transport::ClassicL2cap(_) => None,
@@ -253,15 +266,19 @@ struct ProfileHandler {
 
 #[derive(Clone, Copy)]
 enum Transport {
+    #[cfg(feature = "rfcomm")]
     Rfcomm,
+    #[cfg(feature = "rfcomm")]
     RfcommChannel(u8),
     #[cfg(feature = "classic-l2cap")]
     ClassicL2cap(webbluetooth_core::ClassicPsm),
 }
 
 impl Transport {
+    /// The pinned RFCOMM server channel, if there is one.
     fn channel(self) -> Option<u8> {
         match self {
+            #[cfg(feature = "rfcomm")]
             Self::RfcommChannel(channel) => Some(channel),
             _ => None,
         }
@@ -314,6 +331,7 @@ impl ProfileHandler {
             // Both RFCOMM forms yield the same channel; they differ only in
             // whether BlueZ picked the channel number or we pinned it, and an
             // adopted FD reports whichever one was used.
+            #[cfg(feature = "rfcomm")]
             Transport::Rfcomm | Transport::RfcommChannel(_) => {
                 let number = self.transport.channel().unwrap_or(0);
                 let channel = Channel::adopt_fd(fd, number, String::new(), sink);
@@ -357,6 +375,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rfcomm")]
     #[test]
     fn rfcomm_record_contains_service_and_protocol_attributes() {
         let bytes = service_record(BluetoothUuid::from_u16(0x1101), Transport::RfcommChannel(3));

@@ -38,12 +38,16 @@ pub(crate) fn open_android(
 }
 
 #[cfg(target_os = "android")]
-pub(crate) fn listen_android(
+pub(crate) async fn listen_android(
     bluetooth: &crate::Bluetooth,
     name: &str,
     service_uuid: &str,
 ) -> crate::Result<RfcommListener> {
-    bluetooth.inner.backend().listen_rfcomm(name, service_uuid)
+    bluetooth
+        .inner
+        .backend()
+        .listen_rfcomm(name, service_uuid)
+        .await
 }
 
 #[cfg(target_os = "windows")]
@@ -67,4 +71,19 @@ pub(crate) fn open_windows_service(
 #[cfg(target_os = "windows")]
 pub(crate) fn listen_windows(channel: u8) -> crate::Result<RfcommListener> {
     webbluetooth_windows::classic::listen(channel)
+}
+
+#[cfg(target_os = "macos")]
+pub use webbluetooth_apple::rfcomm::RfcommChannel;
+
+#[cfg(target_os = "macos")]
+pub(crate) async fn open_macos_address(address: &str, channel: u8) -> crate::Result<RfcommChannel> {
+    use webbluetooth_apple::rfcomm::{open, Target};
+    open(Target::Address(address.to_owned()), channel).await
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) async fn open_macos_name(name: &str, channel: u8) -> crate::Result<RfcommChannel> {
+    use webbluetooth_apple::rfcomm::{open, Target};
+    open(Target::Name(name.to_owned()), channel).await
 }

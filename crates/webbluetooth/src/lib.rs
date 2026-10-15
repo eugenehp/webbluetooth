@@ -104,7 +104,10 @@ pub use webbluetooth_core::{PanControlMessage, PanError, PanFrame, PanPacketType
 // a caller does not.
 use webbluetooth_core::{address, restoration, scan};
 /// Bluetooth Classic L2CAP channels.
-#[cfg(all(feature = "classic-l2cap", target_os = "linux"))]
+#[cfg(all(
+    feature = "classic-l2cap",
+    any(target_os = "linux", target_os = "android")
+))]
 pub mod classic_l2cap;
 #[cfg(all(feature = "classic-l2cap", target_os = "windows"))]
 pub mod classic_l2cap_windows;
@@ -179,7 +182,10 @@ pub use gatt::{
     CharacteristicProperties, Notifications, RemoteGattCharacteristic, RemoteGattDescriptor,
     RemoteGattServer, RemoteGattService, Tagged, WriteType,
 };
-#[cfg(all(target_os = "linux", any(feature = "raw-acl", feature = "raw-sco")))]
+#[cfg(all(
+    target_os = "linux",
+    any(feature = "raw-acl", feature = "raw-sco", feature = "le-audio")
+))]
 pub use raw_hci::RawHciSocket;
 #[cfg(feature = "classic")]
 pub use webbluetooth_core::classic::{
@@ -190,7 +196,10 @@ pub use webbluetooth_core::classic::{
 pub use webbluetooth_core::sdp::{SdpDataElement, SdpError, SdpServiceRecord};
 #[cfg(feature = "raw-acl")]
 pub use webbluetooth_core::AclPacket;
-#[cfg(all(feature = "classic", target_os = "windows"))]
+#[cfg(any(
+    all(feature = "classic", target_os = "windows"),
+    all(feature = "apple-classic", target_os = "macos")
+))]
 pub use webbluetooth_core::ClassicDevice;
 #[cfg(feature = "le-audio")]
 pub use webbluetooth_core::IsoPacket;
@@ -361,6 +370,10 @@ pub const LE_AUDIO: bool = cfg!(feature = "le-audio");
 
 /// Whether the macOS IOBluetooth Classic backend was explicitly requested.
 ///
+/// `rfcomm` turns it on, since RFCOMM on a Mac is IOBluetooth's; on its own it
+/// provides `Bluetooth::paired_classic_devices` (macOS builds only, so not a
+/// link: the docs are built for other targets too).
+///
 /// The backend is not available on non-macOS Apple targets or browsers.
 pub const APPLE_CLASSIC: bool = cfg!(all(feature = "apple-classic", target_os = "macos"));
 
@@ -378,7 +391,7 @@ pub use classic_l2cap::ClassicL2capChannel;
 #[cfg(all(feature = "classic-l2cap", target_os = "linux"))]
 pub use classic_l2cap::ClassicL2capListener;
 #[cfg(all(feature = "classic-l2cap", target_os = "android"))]
-pub use classic_l2cap::ClassicL2capListener;
+pub use classic_l2cap::{ClassicL2capChannel, ClassicL2capListener};
 #[cfg(all(feature = "classic-l2cap", target_os = "windows"))]
 pub use classic_l2cap_windows::ClassicL2capChannel;
 #[cfg(all(feature = "classic-l2cap", target_os = "windows"))]
@@ -388,7 +401,12 @@ pub use peripheral::Peripheral;
 pub use restoration::Restoration;
 #[cfg(all(
     feature = "rfcomm",
-    any(target_os = "linux", target_os = "android", target_os = "windows")
+    any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "macos"
+    )
 ))]
 pub use rfcomm::RfcommChannel;
 #[cfg(all(feature = "rfcomm", target_os = "linux"))]
@@ -472,6 +490,42 @@ impl Bluetooth {
         webbluetooth_linux::sdp::query(address, service).map_err(Error::Network)
     }
 
+    /// The Bluetooth Classic devices paired with this Mac.
+    ///
+    /// Answered by IOBluetooth from what the system already knows: no inquiry
+    /// runs, and a device is listed whether or not it is in range. This is
+    /// where the address [`Self::open_rfcomm_channel`] takes comes from —
+    /// CoreBluetooth, and so everything else on this type, never reveals one.
+    #[cfg(all(feature = "apple-classic", target_os = "macos"))]
+    pub async fn paired_classic_devices(&self) -> Result<Vec<ClassicDevice>> {
+        webbluetooth_apple::classic::paired_devices()
+    }
+
+    /// Open an RFCOMM stream to a Bluetooth address on macOS.
+    ///
+    /// On this type rather than on [`BluetoothDevice`] because a Mac has no
+    /// `BluetoothDevice` with an address: those come from CoreBluetooth, which
+    /// hides it. The device must already be paired, and the binary signed
+    /// with the `com.apple.security.device.bluetooth` entitlement.
+    ///
+    /// For a dual-mode device already held as a [`BluetoothDevice`], see
+    /// [`BluetoothDevice::open_rfcomm_channel`], which finds it by name.
+    ///
+    /// ```no_run
+    /// # use webbluetooth::stream::StreamExt;
+    /// # async fn example(bluetooth: webbluetooth::Bluetooth) -> webbluetooth::Result<()> {
+    /// let channel = bluetooth.open_rfcomm_channel("AA:BB:CC:DD:EE:FF", 1).await?;
+    /// let mut incoming = channel.take_incoming().expect("first take");
+    /// while let Some(bytes) = incoming.next().await {
+    ///     println!("{} bytes", bytes.len());
+    /// }
+    /// # Ok(()) }
+    /// ```
+    #[cfg(all(feature = "rfcomm", target_os = "macos"))]
+    pub async fn open_rfcomm_channel(&self, address: &str, channel: u8) -> Result<RfcommChannel> {
+        rfcomm::open_macos_address(address, channel).await
+    }
+
     /// Discover Bluetooth Classic devices through the Windows native API.
     #[cfg(all(feature = "classic", target_os = "windows"))]
     pub async fn classic_devices(&self) -> Result<Vec<ClassicDevice>> {
@@ -486,7 +540,7 @@ impl Bluetooth {
     }
 
     /// Register an RFCOMM Classic profile with BlueZ.
-    #[cfg(all(feature = "classic", target_os = "linux", not(feature = "linux-hci")))]
+    #[cfg(all(feature = "rfcomm", target_os = "linux", not(feature = "linux-hci")))]
     pub async fn register_classic_profile(
         &self,
         service: BluetoothUuid,
@@ -586,7 +640,7 @@ impl Bluetooth {
     #[cfg(all(feature = "classic-l2cap", target_os = "android"))]
     pub async fn listen_classic_l2cap(&self, secure: bool) -> Result<ClassicL2capListener> {
         self.inner.require_powered_on().await?;
-        classic_l2cap::listen_android(self, secure)
+        classic_l2cap::listen_android(self, secure).await
     }
 
     /// Listen for Android RFCOMM connections registered under a service UUID.
@@ -597,7 +651,7 @@ impl Bluetooth {
         service_uuid: &str,
     ) -> Result<RfcommListener> {
         self.inner.require_powered_on().await?;
-        rfcomm::listen_android(self, name, service_uuid)
+        rfcomm::listen_android(self, name, service_uuid).await
     }
 
     /// Open a Linux raw ACL HCI socket for controller `device`.
@@ -1357,6 +1411,55 @@ impl LeScan {
     /// Empty when it accepts all advertisements.
     pub fn filters(&self) -> &[DeviceFilter] {
         &self.options.filters
+    }
+
+    /// Scan for `duration` and return what was seen, one entry per device.
+    ///
+    /// The enumerating scan — "show me what is out there" — which is what
+    /// `btleplug`'s `start_scan`, sleep, `peripherals()` does and what a
+    /// picker needs before it has anything to show. Sightings of the same
+    /// device are folded together with [`Candidate::merge`], in the order the
+    /// devices were first seen, so a name that arrived in a scan response is
+    /// attached to the services that arrived in the advertisement before it.
+    ///
+    /// Ask for [`keep_repeated_devices`](LeScanOptions::keep_repeated_devices)
+    /// when the later packets matter: without it each device is reported once
+    /// and there is nothing to fold.
+    ///
+    /// The scan is still running afterwards — call this again to keep
+    /// listening, or [`stop`](Self::stop) it.
+    ///
+    /// Not part of Web Bluetooth.
+    ///
+    /// ```no_run
+    /// # use std::time::Duration;
+    /// # use webbluetooth::{Bluetooth, LeScanOptions};
+    /// # async fn example() -> webbluetooth::Result<()> {
+    /// let mut scan = Bluetooth::shared()
+    ///     .request_le_scan(
+    ///         LeScanOptions::accept_all_advertisements().keep_repeated_devices(true),
+    ///     )
+    ///     .await?;
+    ///
+    /// for device in scan.collect_for(Duration::from_secs(5)).await {
+    ///     println!("{} ({})", device.label(), device.id);
+    /// }
+    /// # Ok(()) }
+    /// ```
+    pub async fn collect_for(&mut self, duration: std::time::Duration) -> Vec<AdvertisementEvent> {
+        use futures_util::StreamExt;
+
+        let mut seen: Vec<AdvertisementEvent> = Vec::new();
+        let _ = timeout(duration, async {
+            while let Some(sighting) = self.next().await {
+                match seen.iter_mut().find(|known| known.id == sighting.id) {
+                    Some(known) => known.merge(sighting),
+                    None => seen.push(sighting),
+                }
+            }
+        })
+        .await;
+        seen
     }
 
     /// Stop scanning. Dropping does the same thing.

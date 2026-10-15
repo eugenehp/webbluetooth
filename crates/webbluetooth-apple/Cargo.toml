@@ -29,7 +29,7 @@ name = "webbluetooth_apple"
 # turns CoreBluetooth into the portable model, which is what the two futures
 # crates and `webbluetooth-core` are for.
 [dependencies]
-webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.3" }
+webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.4" }
 futures-core      = "0.3"
 futures-channel   = { version = "0.3", features = ["std"] }
 futures-util      = { version = "0.3", default-features = false, features = ["std", "async-await"] }
@@ -39,7 +39,11 @@ futures-executor = "0.3"
 
 [features]
 classic = ["webbluetooth-core/classic"]
+## macOS: RFCOMM over IOBluetooth. Links a second framework, so it is not part
+## of `classic`.
 apple-classic = ["classic"]
+## macOS: RFCOMM byte streams over IOBluetooth.
+rfcomm = ["apple-classic"]
 
 [lints]
 workspace = true

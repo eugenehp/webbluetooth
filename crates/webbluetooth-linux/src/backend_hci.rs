@@ -118,7 +118,9 @@ pub struct Inner {
     /// it returns.
     sightings: Mutex<HashMap<String, Sighting>>,
     /// The running scan thread's stop flag, if one is running.
-    scan_stop: Mutex<Option<Arc<AtomicBool>>>,
+    /// The running scan: its stop flag, and its thread, which is joined on
+    /// stop so the controller has stopped scanning before anything follows.
+    scan_stop: Mutex<Option<(Arc<AtomicBool>, std::thread::JoinHandle<()>)>>,
 }
 
 /// Routes a connection's unsolicited traffic back into the engine.
@@ -235,8 +237,18 @@ impl Inner {
     pub fn set_radio_scanning(self: &Arc<Self>, on: bool) -> Result<()> {
         let mut running = self.scan_stop.lock().unwrap();
         if !on {
-            if let Some(stop) = running.take() {
-                stop.store(true, Ordering::Release);
+            let Some((stop, thread)) = running.take() else {
+                return Ok(());
+            };
+            drop(running);
+            stop.store(true, Ordering::Release);
+            // Wait for the thread to disable the scan and exit — at most one
+            // receive timeout. Returning sooner left the controller scanning
+            // while the caller went on to connect, and the late Scan Enable
+            // (off) then landed in the middle of the connection being made.
+            // Not from the scan thread itself, which would wait for ever.
+            if thread.thread().id() != std::thread::current().id() {
+                let _ = thread.join();
             }
             return Ok(());
         }
@@ -252,7 +264,7 @@ impl Inner {
         // Read once, here: a scan stays on the controller it started on even
         // if another is selected while it runs.
         let controller = self.controller.load(Ordering::Relaxed);
-        std::thread::Builder::new()
+        let thread = std::thread::Builder::new()
             .name("webbluetooth-hci-scan".into())
             .spawn(move || {
                 let Ok(socket) = HciSocket::open(controller) else {
@@ -295,7 +307,7 @@ impl Inner {
                 });
             })
             .map_err(|e| Error::Network(format!("could not start scanning: {e}")))?;
-        *running = Some(stop);
+        *running = Some((stop, thread));
         Ok(())
     }
 
@@ -569,8 +581,9 @@ impl Inner {
         });
 
         // The socket connect blocks while the LE link comes up.
-        let connection = Connection::open(&address, random, sink)
-            .map_err(|e| Error::Network(format!("could not connect to {address}: {e}")))?;
+        // The ATT layer's message already names the address.
+        let connection =
+            Connection::open(&address, random, sink).map_err(|e| Error::Network(e.to_string()))?;
         let connection = Arc::new(connection);
 
         // Discovery is a round trip per batch, so the tree is cached for the

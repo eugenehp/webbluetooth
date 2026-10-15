@@ -6,8 +6,12 @@ use crate::sys::{bind, close, errno, read, socket, write, AF_BLUETOOTH, BTPROTO_
 use std::ffi::c_int;
 
 const HCI_CHANNEL_RAW: u16 = 0;
+#[cfg_attr(not(feature = "raw-acl"), allow(dead_code))]
 const HCI_ACLDATA_PKT: u8 = 0x02;
+#[cfg_attr(not(feature = "raw-sco"), allow(dead_code))]
 const HCI_SCODATA_PKT: u8 = 0x03;
+// Only LE Audio sends ISO data.
+#[cfg_attr(not(feature = "le-audio"), allow(dead_code))]
 const HCI_ISODATA_PKT: u8 = 0x05;
 
 #[repr(C, packed)]

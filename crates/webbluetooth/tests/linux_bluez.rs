@@ -43,7 +43,7 @@ fn have_bus() -> bool {
         || std::env::var("DBUS_SYSTEM_BUS_ADDRESS").is_ok()
 }
 
-#[cfg(feature = "classic")]
+#[cfg(feature = "rfcomm")]
 #[test]
 fn bluez_registers_and_unregisters_a_classic_profile() {
     if !have_bus() {

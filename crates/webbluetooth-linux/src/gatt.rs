@@ -164,9 +164,7 @@ impl Connection {
         if unsafe { connect(fd, &addr, std::mem::size_of::<SockAddrL2>() as u32) } < 0 {
             let e = errno();
             unsafe { close(fd) };
-            return Err(Error::Io(format!(
-                "could not connect to {address} (errno {e})"
-            )));
+            return Err(Error::Io(connect_error(address, e)));
         }
 
         let shared = Arc::new(Shared {
@@ -535,6 +533,28 @@ impl Connection {
     }
 }
 
+/// Say why an ATT connect failed, where the errno alone would not.
+///
+/// `EBUSY` is the one worth explaining. Linux gives an LE link exactly one ATT
+/// channel, and when `bluetoothd` is running it takes that channel for itself
+/// on any link it brings up — which it does on its own for a bonded device on
+/// its auto-connect list, as soon as the device advertises. The link is then up
+/// before this backend asks, its ATT channel is spoken for, and there is no
+/// sharing it: this backend cannot reach that device while the daemon holds it.
+fn connect_error(address: &str, errno: i32) -> String {
+    if errno == crate::sys::EBUSY {
+        format!(
+            "could not connect to {address}: its LE link already has an ATT client \
+             (errno {errno}), almost certainly bluetoothd, which connects bonded devices \
+             by itself. linux-hci cannot share a link with it; disconnect the device \
+             in bluetoothd (`bluetoothctl disconnect {address}`) and take it off \
+             auto-connect, or stop bluetoothd"
+        )
+    } else {
+        format!("could not connect to {address} (errno {errno})")
+    }
+}
+
 impl Drop for Connection {
     fn drop(&mut self) {
         self.close();
@@ -606,6 +626,22 @@ pub fn find_cccd(descriptors: &[Descriptor]) -> Option<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EBUSY means the daemon holds the link; the message has to say so and
+    /// say what to do. Anything else keeps its errno.
+    #[test]
+    fn a_link_held_by_bluetoothd_is_explained() {
+        let busy = connect_error("AA:BB:CC:DD:EE:FF", crate::sys::EBUSY);
+        assert!(busy.contains("bluetoothd"), "{busy}");
+        assert!(
+            busy.contains("bluetoothctl disconnect AA:BB:CC:DD:EE:FF"),
+            "{busy}"
+        );
+        assert_eq!(
+            connect_error("AA:BB:CC:DD:EE:FF", 111),
+            "could not connect to AA:BB:CC:DD:EE:FF (errno 111)"
+        );
+    }
 
     // Address parsing and the socket layout are tested in `sys`.
 

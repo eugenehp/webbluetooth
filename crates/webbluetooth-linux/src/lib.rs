@@ -25,7 +25,11 @@ pub mod dbus;
 /// LE scanning. The advertising-data parser is portable; only the raw socket
 /// inside it is Linux-only.
 pub mod hci;
-#[cfg(all(target_os = "linux", any(feature = "raw-acl", feature = "raw-sco")))]
+// LE Audio's ISO packets go through the same raw socket as ACL and SCO.
+#[cfg(all(
+    target_os = "linux",
+    any(feature = "raw-acl", feature = "raw-sco", feature = "le-audio")
+))]
 pub mod raw_hci;
 
 // The adapter: BlueZ expressed as the portable model.

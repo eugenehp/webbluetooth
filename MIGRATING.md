@@ -19,19 +19,19 @@ the whole peripheral.
 | `Manager::new()`, `manager.adapters()` | `Bluetooth::shared()` |
 | polling `adapter.adapter_state()` for `PoweredOn` | `bluetooth.availability().await` |
 | `adapter.start_scan(ScanFilter)` + `adapter.peripherals()` | `bluetooth.request_device(options)` with a `DeviceChooser` |
-| …or scanning to enumerate several | `bluetooth.request_le_scan(LeScanOptions)`, then `adopt_candidate` |
+| …or scanning to enumerate several | `bluetooth.request_le_scan(LeScanOptions)`, `scan.collect_for(duration)`, then `adopt_candidate` |
 | `peripheral.properties()` → `local_name` | `device.name()` |
 | `peripheral.id()` | `device.id()` |
 | `peripheral.connect()` | `device.gatt().connect()` |
 | `peripheral.discover_services()` | implicit in `get_primary_service` |
-| `peripheral.characteristics()` (one flat set) | `service.get_characteristics(None)`, per service |
+| `peripheral.characteristics()` (one flat set) | `gatt.get_characteristics()` — or `service.get_characteristics(None)`, per service |
 | `peripheral.subscribe(&char)` | `characteristic.start_notifications()` → a `Stream` |
 | `peripheral.notifications()` (one stream, each item tagged) | `.tagged()` on each, merged with `stream::select_all` |
 | `peripheral.write(&char, data, WriteType::WithoutResponse)` | `characteristic.write_value_without_response(data)` |
 | `peripheral.write(&char, data, WriteType::WithResponse)` | `characteristic.write_value_with_response(data)` |
 | `peripheral.read(&char)` | `characteristic.read_value()` |
 | `peripheral.is_connected()` | `gatt.connected()` (not `async`) |
-| `peripheral.disconnect()` | `gatt.disconnect()` (not `async`) |
+| `peripheral.disconnect()` | `gatt.disconnect_and_wait()` — or `gatt.disconnect()`, which only asks (not `async`) |
 | `adapter.events()` filtered for `CentralEvent::DeviceDisconnected` | `device.watch_disconnect()` |
 | `uuid::Uuid` constants | `BluetoothUuid` — or keep yours, with `features = ["uuid"]` |
 
@@ -100,7 +100,7 @@ vendored from the Community Group registry, so a characteristic the standard
 forbids is filtered out of discovery rather than returned and refused.
 
 Beyond the standard, because the platforms offer them: the peripheral role,
-L2CAP channels, RFCOMM on Linux, connection parameters and PHY, adapter
+L2CAP channels, RFCOMM on Linux, Android, Windows and macOS, connection parameters and PHY, adapter
 selection, negotiated ATT MTU access, descriptor offset operations, and iOS
 state preservation. See the README.
 
@@ -108,7 +108,8 @@ state preservation. See the README.
 
 The default Web Bluetooth-shaped API is LE/GATT only. This crate can expose
 native Bluetooth Classic functionality separately with the `classic` feature,
-and Linux RFCOMM streams with the `rfcomm` feature. Those extensions are not
+and RFCOMM streams with the `rfcomm` feature, which on a Mac links IOBluetooth,
+a separate framework from CoreBluetooth. Those extensions are not
 part of `webbluetooth::public` and are not portable to browser or Apple
 CoreBluetooth targets.
 

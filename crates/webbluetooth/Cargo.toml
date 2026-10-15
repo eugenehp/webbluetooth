@@ -34,29 +34,29 @@ targets = [
 features = ["terminal-chooser", "uuid"]
 
 [dependencies]
-webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.3" }
+webbluetooth-core = { path = "../webbluetooth-core", version = "0.0.4" }
 futures-core     = "0.3"
 futures-channel  = { version = "0.3", features = ["std"] }
 futures-util     = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 
 # Exactly one backend is linked, chosen by target.
 [target.'cfg(target_vendor = "apple")'.dependencies]
-webbluetooth-apple = { path = "../webbluetooth-apple", version = "0.0.3" }
+webbluetooth-apple = { path = "../webbluetooth-apple", version = "0.0.4" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-webbluetooth-linux = { path = "../webbluetooth-linux", version = "0.0.3" }
+webbluetooth-linux = { path = "../webbluetooth-linux", version = "0.0.4" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-webbluetooth-windows = { path = "../webbluetooth-windows", version = "0.0.3" }
+webbluetooth-windows = { path = "../webbluetooth-windows", version = "0.0.4" }
 
 [target.'cfg(target_os = "android")'.dependencies]
-webbluetooth-android = { path = "../webbluetooth-android", version = "0.0.3" }
+webbluetooth-android = { path = "../webbluetooth-android", version = "0.0.4" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-webbluetooth-wasm = { path = "../webbluetooth-wasm", version = "0.0.3" }
+webbluetooth-wasm = { path = "../webbluetooth-wasm", version = "0.0.4" }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-webbluetooth-linux = { path = "../webbluetooth-linux", version = "0.0.3" }
+webbluetooth-linux = { path = "../webbluetooth-linux", version = "0.0.4" }
 
 [dev-dependencies]
 futures-executor = "0.3"
@@ -79,15 +79,17 @@ classic = [
     "webbluetooth-apple/classic",
     "webbluetooth-wasm/classic",
 ]
-## Reserved for the macOS IOBluetooth Classic backend.
+## macOS: Bluetooth Classic devices through IOBluetooth. Separate from
+## `classic` because it links a second framework; `rfcomm` turns it on.
 apple-classic = ["classic", "webbluetooth-apple/apple-classic"]
 profiles = ["webbluetooth-core/profiles", "webbluetooth-linux/profiles"]
 mesh = ["webbluetooth-core/mesh"]
 raw-acl = ["webbluetooth-core/raw-acl", "webbluetooth-linux/raw-acl"]
 raw-sco = ["webbluetooth-core/raw-sco", "webbluetooth-linux/raw-sco"]
 le-audio = ["webbluetooth-core/le-audio", "webbluetooth-linux/le-audio"]
-## Enable RFCOMM byte streams. This also enables the Classic feature.
-rfcomm = ["classic", "webbluetooth-core/rfcomm", "webbluetooth-linux/rfcomm", "webbluetooth-android/rfcomm"]
+## Enable RFCOMM byte streams. This also enables the Classic feature — and on
+## macOS `apple-classic`, since RFCOMM there is IOBluetooth's.
+rfcomm = ["classic", "apple-classic", "webbluetooth-core/rfcomm", "webbluetooth-linux/rfcomm", "webbluetooth-android/rfcomm", "webbluetooth-apple/rfcomm"]
 ## Enable Classic L2CAP channels where the platform provides them.
 classic-l2cap = ["classic", "webbluetooth-core/classic-l2cap", "webbluetooth-linux/classic-l2cap", "webbluetooth-android/classic-l2cap", "webbluetooth-windows/classic-l2cap"]
 ## Linux: talk to the controller directly instead of going through BlueZ.

@@ -552,7 +552,10 @@ impl Inner {
         };
         self.pending.lock().unwrap().fail_peripheral(key, &reason);
 
-        // A notification stream on a dead characteristic should end, not hang.
+        // Forget subscribers whose stream has already been dropped. The
+        // streams still open are ended by `Notifications` itself, which
+        // watches for this disconnect: the map is keyed by characteristic and
+        // cannot say which of them belonged to this peripheral.
         self.notifications.lock().unwrap().retain(|_, subscribers| {
             subscribers.retain(|tx| tx.is_open());
             !subscribers.is_empty()

@@ -988,8 +988,14 @@ impl Inner {
             rx
         };
 
-        self.call(&path, interfaces::DEVICE, "Connect", vec![])
-            .await?;
+        // `Device1.Connect` picks the bearer itself, and for a dual-mode
+        // device bonded over BR/EDR only — headphones paired for audio — it
+        // picks BR/EDR, where there is no GATT to reach. The error BlueZ
+        // gives for that names neither cause nor remedy, so it is replaced.
+        let result = self
+            .call(&path, interfaces::DEVICE, "Connect", vec![])
+            .await;
+        result.map_err(explain_bredr_choice)?;
         let _ = connected.await;
         self.devices.update(id, |d| d.connected = true);
 
@@ -1278,6 +1284,24 @@ impl Inner {
 }
 
 /// Turn a BlueZ D-Bus error into the spec's vocabulary.
+/// Say why a dual-mode device failed to connect, when BlueZ chose BR/EDR.
+///
+/// BlueZ reports it as `br-connection-profile-unavailable` and the like, which
+/// names neither the cause nor anything a caller can do about it.
+fn explain_bredr_choice(error: Error) -> Error {
+    match error {
+        Error::Network(message) if message.contains("br-connection") => Error::Network(format!(
+            "{message}: BlueZ chose Bluetooth Classic (BR/EDR) for this dual-mode \
+             device, and GATT needs LE. It does for a device bonded over BR/EDR only, \
+             and for some that are not bonded at all — a Mac advertising with its \
+             public address, for one. A BlueZ new enough to expose Device1.PreferredBearer, run with \
+             experimental interfaces (`bluetoothd -E`), can be told to prefer \"le\" \
+             for this device."
+        )),
+        other => other,
+    }
+}
+
 fn map_error(member: &str, e: crate::dbus::connection::Error) -> Error {
     use crate::dbus::connection::Error as D;
     match &e {
@@ -1374,5 +1398,30 @@ pub fn authorization() -> webbluetooth_core::Authorization {
     match crate::dbus::Connection::system() {
         Ok(_) => webbluetooth_core::Authorization::Allowed,
         Err(_) => webbluetooth_core::Authorization::Denied,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The error a caller sees when BlueZ connects a dual-mode device over
+    /// BR/EDR has to say so; anything else passes through untouched.
+    #[test]
+    fn a_bredr_connection_failure_is_explained() {
+        let explained = explain_bredr_choice(Error::Network(
+            "Connect failed: br-connection-profile-unavailable".into(),
+        ));
+        let Error::Network(message) = explained else {
+            panic!("still a NetworkError");
+        };
+        assert!(
+            message.contains("br-connection-profile-unavailable"),
+            "{message}"
+        );
+        assert!(message.contains("PreferredBearer"), "{message}");
+
+        let untouched = explain_bredr_choice(Error::Network("Connect failed: timeout".into()));
+        assert!(matches!(untouched, Error::Network(m) if m == "Connect failed: timeout"));
     }
 }

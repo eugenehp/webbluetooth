@@ -317,7 +317,7 @@ mod socket {
     use crate::sys::{
         close, errno, read, socket, write, AF_BLUETOOTH, BTPROTO_HCI, EINTR, SOCK_RAW,
     };
-    use std::ffi::{c_int, c_ulong};
+    use std::ffi::{c_int, c_long, c_ulong};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
@@ -331,6 +331,21 @@ mod socket {
     const OGF_LE_CTL: u16 = 0x08;
     const OCF_LE_SET_SCAN_PARAMETERS: u16 = 0x000B;
     const OCF_LE_SET_SCAN_ENABLE: u16 = 0x000C;
+    const SOL_SOCKET: c_int = 1;
+    const SO_RCVTIMEO: c_int = 20;
+    /// `EAGAIN`, which is also `EWOULDBLOCK`: the receive timeout expired.
+    const EAGAIN: i32 = 11;
+    /// How often a scan with nothing to read looks at its stop flag.
+    const POLL_INTERVAL_US: c_long = 100_000;
+
+    /// `struct timeval`, for `SO_RCVTIMEO`: two C `long`s, so 8 bytes on a
+    /// 32-bit Pi and 16 on 64-bit. Fixed-width fields would hand a 32-bit
+    /// kernel a zero timeout, which means "block for ever".
+    #[repr(C)]
+    struct Timeval {
+        tv_sec: c_long,
+        tv_usec: c_long,
+    }
 
     // Only the HCI-specific calls; the rest come from `crate::sys`.
     use crate::sys::{bind, bluetooth_setsockopt};
@@ -600,6 +615,32 @@ mod socket {
             stop: Arc<AtomicBool>,
             mut on_advertisement: impl FnMut(Advertisement),
         ) -> Result<(), String> {
+            // Without a timeout the read below blocks until the next
+            // advertisement, and a stop request waits for it — with the
+            // controller still scanning. A connection started in that window
+            // then has the scan disabled underneath it at an arbitrary moment,
+            // which is a connect that fails with ECONNREFUSED or EINPROGRESS
+            // for no reason visible to the caller.
+            let timeout = Timeval {
+                tv_sec: 0,
+                tv_usec: POLL_INTERVAL_US,
+            };
+            let rc = unsafe {
+                bluetooth_setsockopt(
+                    self.fd,
+                    SOL_SOCKET,
+                    SO_RCVTIMEO,
+                    (&raw const timeout).cast(),
+                    std::mem::size_of::<Timeval>() as u32,
+                )
+            };
+            if rc < 0 {
+                return Err(format!(
+                    "could not set the HCI receive timeout (errno {})",
+                    errno()
+                ));
+            }
+
             self.set_scan_parameters()?;
             self.set_scan_enable(true)?;
 
@@ -607,10 +648,10 @@ mod socket {
             while !stop.load(Ordering::Acquire) {
                 let n = unsafe { read(self.fd, buf.as_mut_ptr(), buf.len()) };
                 if n < 0 {
-                    if errno() == EINTR {
-                        continue; // EINTR
+                    match errno() {
+                        EINTR | EAGAIN => continue,
+                        _ => break,
                     }
-                    break;
                 }
                 let packet = &buf[..n as usize];
                 // 0x04 event, event code, length, body.

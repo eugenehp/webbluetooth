@@ -50,6 +50,8 @@ fn the_gatt_tree_is_send() {
     let device: BluetoothDevice = unreachable!();
     let gatt = device.gatt();
     assert_send(gatt.connect());
+    assert_send(gatt.disconnect_and_wait());
+    assert_send(gatt.get_characteristics());
     assert_send(gatt.get_primary_services(None));
     assert_send(gatt.get_primary_service("battery_service"));
 

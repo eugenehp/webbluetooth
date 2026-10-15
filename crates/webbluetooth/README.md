@@ -35,7 +35,7 @@ while let Some(value) = beats.next().await {
 
 ```toml
 [dependencies]
-webbluetooth = "0.0.2"
+webbluetooth = "0.0.4"
 ```
 
 That is the whole dependency list for the example above. `webbluetooth::prelude`
@@ -90,7 +90,8 @@ are opt-in through Cargo features:
 |---|---|
 | `public` | The Web Bluetooth-compatible imports under `webbluetooth::public`. |
 | `classic` | Enables Bluetooth Classic capability reporting. |
-| `rfcomm` | Enables RFCOMM byte streams on Linux and Android; it implies `classic`. |
+| `rfcomm` | Enables RFCOMM byte streams on Linux, Android, Windows and macOS; it implies `classic`, and on macOS `apple-classic`. |
+| `apple-classic` | macOS: Bluetooth Classic through IOBluetooth — paired-device listing; `rfcomm` turns it on. |
 | `classic-l2cap` | Enables Bluetooth Classic L2CAP channels; it implies `classic` and is currently implemented on Linux. |
 | `linux-hci` | Uses the Linux controller directly instead of BlueZ. |
 | `uuid` | Converts to and from the `uuid` crate's `Uuid`. |
@@ -99,7 +100,7 @@ For example:
 
 ```toml
 [dependencies]
-webbluetooth = { version = "0.0.2", features = ["public", "rfcomm"] }
+webbluetooth = { version = "0.0.4", features = ["public", "rfcomm"] }
 ```
 
 `BluetoothDevice::mtu()` reports the negotiated ATT MTU. On Android,
@@ -115,9 +116,15 @@ portable whole-value reads and writes, validate offsets, and enforce the
 On Linux, `BluetoothDevice::open_rfcomm_channel(channel)` opens a Bluetooth
 Classic RFCOMM byte stream and `open_classic_l2cap_channel(psm)` opens a
 Classic L2CAP channel. On Android, `open_rfcomm_service(service_uuid)` opens
-an RFCOMM service-record connection. These transports are separate from BLE
-L2CAP and from the Web Bluetooth surface; Apple CoreBluetooth and browser
-targets do not expose them.
+an RFCOMM service-record connection. On Windows, `open_rfcomm_channel(channel)`
+goes through WinSock. On macOS, RFCOMM is IOBluetooth's rather than
+CoreBluetooth's, and the two share no identifier: `Bluetooth::open_rfcomm_channel(address,
+channel)` opens by address (`Bluetooth::paired_classic_devices()` lists them),
+and `BluetoothDevice::open_rfcomm_channel(channel)` finds a dual-mode device's
+Classic side by name. IOBluetooth delivers RFCOMM events on the main thread's
+run loop, so a command-line program has to keep it turning — see the
+`rfcomm_macos` example. These transports are separate from BLE L2CAP and from the
+Web Bluetooth surface; iOS and browser targets do not expose them.
 
 ## What is different from a browser
 
@@ -136,7 +143,7 @@ the services that were asked for.
 |---|---|
 | `public` | Re-export the Web Bluetooth-compatible API under `webbluetooth::public`. |
 | `classic` | Enable Bluetooth Classic capability reporting and native extensions. |
-| `rfcomm` | Enable RFCOMM byte streams; implies `classic` and is currently implemented on Linux. |
+| `rfcomm` | Enable RFCOMM byte streams on Linux, Android, Windows and macOS; implies `classic`. |
 | `linux-hci` | Talk to the controller directly instead of going through BlueZ. |
 | `terminal-chooser` | A device chooser that prints numbered candidates and reads a line. |
 | `uuid` | Convert to and from the `uuid` crate's `Uuid`. |

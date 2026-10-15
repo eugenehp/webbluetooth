@@ -400,9 +400,8 @@ impl Inner {
             }
         }
 
+        #[allow(clippy::needless_update)]
         let advertisement = Advertisement {
-            #[cfg(feature = "classic")]
-            class_of_device: None,
             local_name: name.clone(),
             tx_power: None,
             // Would mean walking the raw data sections.
@@ -419,6 +418,9 @@ impl Inner {
             rssi,
             // WinRT hands over parsed data sections, not the packet as received.
             raw: None,
+            // `class_of_device` exists when webbluetooth-core's `classic` is on,
+            // which feature unification can do without this crate's `classic`.
+            ..Default::default()
         };
 
         let id = ble::format_address(address);

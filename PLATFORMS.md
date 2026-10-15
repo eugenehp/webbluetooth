@@ -35,14 +35,102 @@ extensions from the Web Bluetooth surface. RFCOMM is a separate `rfcomm`
 feature, which implies `classic`; its current implementation uses Linux's
 `AF_BLUETOOTH` RFCOMM sockets.
 
-The separate `apple-classic` feature reserves the macOS IOBluetooth backend
-boundary. It is intentionally not enabled by `classic`: CoreBluetooth remains
-LE-only, and the IOBluetooth implementation is not yet present. It cannot be
-provided on iOS, tvOS, watchOS, visionOS, or browser targets.
+The separate `apple-classic` feature is the macOS IOBluetooth backend. It is
+intentionally not enabled by `classic`: CoreBluetooth remains LE-only, and
+Classic on a Mac means linking a second framework. `rfcomm` does enable it,
+because asking for RFCOMM on a Mac is asking for IOBluetooth. It cannot be provided on
+iOS, tvOS, watchOS, visionOS, or browser targets, none of which have
+IOBluetooth.
 
-RFCOMM is available on Linux, Android, and Windows through their native socket
-APIs. Apple CoreBluetooth, WebAssembly, and the browser expose no Bluetooth
-Classic transport through this crate. The feature flag does not make an
+With `rfcomm` enabled, macOS has RFCOMM client channels. Two things about it differ from every other platform, and both come
+from CoreBluetooth and IOBluetooth being separate frameworks that share
+nothing:
+
+* **A device is found by address or by name, not by its `BluetoothDevice`
+  id.** CoreBluetooth hides the address behind a per-host UUID that
+  IOBluetooth has never heard of. `Bluetooth::open_rfcomm_channel(address,
+  channel)` takes an address — `Bluetooth::paired_classic_devices()` lists
+  them — and `BluetoothDevice::open_rfcomm_channel(channel)` bridges a
+  dual-mode device by matching its name against the paired devices, which is
+  a heuristic: two paired devices with one name cannot be told apart.
+* **Events arrive on the main thread's run loop.** IOBluetooth delivers
+  every RFCOMM callback — the open completing, each chunk of data, the peer
+  closing — there, whichever thread opened the channel. An app keeps that run
+  loop turning; a command-line program has to (`CFRunLoopRun`, or
+  `CFRunLoopRunInMode` in a loop, on the main thread) and do its work on
+  another thread, as `examples/rfcomm_macos.rs` does. Where it does not, the
+  open fails with an error that says so, rather than returning a channel that
+  can send but never receives.
+* **The process needs Bluetooth permission of the Classic kind.** The device
+  must be paired in System Settings first, and the open fails with
+  `kIOReturnNotPermitted` unless the binary carries the
+  `com.apple.security.device.bluetooth` entitlement — on recent macOS, from
+  inside a signed `.app` bundle. Listing paired devices needs neither.
+
+There is no RFCOMM listener on macOS yet.
+
+**How the macOS backend is tested.** Alongside the real-hardware run below, the
+far end is mocked so it can be tested anywhere: `rfcomm_mock.rs` synthesises an
+`IOBluetoothDevice` and an `IOBluetoothRFCOMMChannel` at run time, as the
+delegate is synthesised, and they behave as IOBluetooth does — the open returns
+at once and completes later from a run loop, data arrives through the real
+delegate in arbitrary chunks, writes are checked against the MTU. Everything
+from the device object inward is the shipping code. The tests were checked by
+breaking the pump six ways (ignoring the MTU, dropping bytes, ignoring an
+abandoned open, not turning the run loop, accepting a failed open, ignoring the
+delegate's close); each one fails a test. What the mock cannot cover is the
+radio, device lookup, and macOS's permission check — and, it turned out, where
+IOBluetooth delivers: the mock calls back on the opening thread, the real
+framework on the main one.
+
+**Against real hardware.** A signed bundle on a Mac opened RFCOMM to an Ubuntu
+machine running this crate's own Linux listener (`listen_rfcomm`), and echoed
+ten rounds of up to ~370 bytes, five runs out of five once the main run loop
+was turning. That run is what found the main-run-loop requirement above: with
+the work on the main thread the channel opened, sent fine, and never received
+a byte.
+
+### Linux RFCOMM, and what running it found
+
+Until 0.0.4 the Linux RFCOMM client had only been compiled. Run between the two
+emulated controllers of the QEMU VM it failed three ways, all fixed and all
+recorded in the changelog: a socket address one byte short (`EINVAL` on every
+connect), a default security level the kernel reserves for SDP (`ECONNREFUSED`
+from any SSP peer on a cold link), and a peer's orderly close reported as an
+error.
+
+The two controllers have to be **paired** before an RFCOMM channel opens
+between them — with Secure Simple Pairing on, as every controller since
+Bluetooth 2.1 has it, the kernel requires at least an unauthenticated link key
+for anything but SDP. A test rig that skips pairing sees `EACCES` or
+`ECONNREFUSED` and nothing else.
+
+### Dual-mode devices bonded over BR/EDR
+
+BlueZ's `Device1.Connect` picks the bearer, and for a dual-mode device — one
+whose LE side has the same address as its BR/EDR side — it can pick BR/EDR,
+where there is no GATT. It always does for a device bonded over BR/EDR only
+(headphones paired for audio). On real hardware it also did for a device with
+no pairing at all: an Ubuntu machine (BlueZ 5.85) scanning a Mac that publishes
+a GATT service found it over LE and then connected over BR/EDR, failing with
+`br-connection-key-missing`, with no bond on either side. A Mac advertises with
+its public address and says it does BR/EDR too, which is the case BlueZ
+resolves towards BR/EDR. The other direction — the Mac as central, BlueZ as
+peripheral — works, because CoreBluetooth only speaks LE.
+
+A pairing only one side remembers fails differently, and on the Mac:
+CoreBluetooth reports "Peer removed pairing information" (CBError 14) until the
+stale pairing is removed. The result is
+`br-connection-profile-unavailable`, which this crate now explains. Recent
+BlueZ, run with experimental interfaces (`bluetoothd -E`), exposes
+`Device1.PreferredBearer`, which can be set to `"le"` for the device. The crate
+does not set it: in the VM, BlueZ 5.83 bonded the LE side too and chose LE
+unaided, so the case could not be reproduced, and setting the property
+produced a BR/EDR connection the unmodified code did not.
+
+RFCOMM is otherwise available on Linux, Android, and Windows through their
+native socket APIs. Apple platforms other than macOS, WebAssembly, and the
+browser expose no Bluetooth Classic transport through this crate. The feature flag does not make an
 unavailable platform transport appear: callers should branch on
 `webbluetooth::CLASSIC` and `webbluetooth::RFCOMM`, and use
 `webbluetooth::public` when they need only the standard-compatible API.
@@ -931,6 +1019,27 @@ GATT attribute holds 512, but only `Write Request` and `Write Command` were
 implemented. Anything longer is now sent as `Prepare Write` fragments and
 committed with `Execute Write`; an unacknowledged write that does not fit is
 refused rather than truncated.
+
+### `linux-hci` and `bluetoothd` cannot share a link
+
+Linux gives an LE link one ATT channel, and `bluetoothd` takes it on any link it
+brings up — including the ones it brings up by itself, for a bonded device on
+its auto-connect list, as soon as the device advertises. This backend then
+cannot reach that device: the connect fails with `EBUSY`, now reported as such.
+If the daemon attaches just after this backend connects instead, the symptom is
+worse — notifications stop arriving although the subscription was
+acknowledged. Bonded devices belong to the daemon; disconnect them there and
+take them off auto-connect, or stop it.
+
+### Stopping a scan has to stop it
+
+A scan thread blocked in `read` on the HCI socket only noticed its stop flag at
+the next advertisement, with the controller still scanning, so a connect made
+straight after a scan had Scan Enable (off) land in the middle of it. The
+socket now has a 100 ms receive timeout and stopping joins the thread. In the
+VM: scan-then-connect ten out of ten, against two out of ten before. A connect
+made within seconds of another client dropping its link to the same peer was
+still refused about once in twenty — not explained yet.
 
 ### Scan responses have to be merged by hand
 

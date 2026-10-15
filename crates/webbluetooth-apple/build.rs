@@ -32,5 +32,11 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=CoreBluetooth");
         println!("cargo:rustc-link-lib=framework=Foundation");
         println!("cargo:rustc-link-lib=dylib=objc");
+        // Bluetooth Classic is a different framework from CoreBluetooth, and
+        // a macOS-only one. Linked only when asked for, so a build that never
+        // opens an RFCOMM channel does not load it.
+        if os == "macos" && std::env::var_os("CARGO_FEATURE_APPLE_CLASSIC").is_some() {
+            println!("cargo:rustc-link-lib=framework=IOBluetooth");
+        }
     }
 }

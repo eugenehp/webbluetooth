@@ -44,9 +44,9 @@ pub(crate) fn open_android(
 }
 
 #[cfg(target_os = "android")]
-pub(crate) fn listen_android(
+pub(crate) async fn listen_android(
     bluetooth: &crate::Bluetooth,
     secure: bool,
 ) -> crate::Result<ClassicL2capListener> {
-    bluetooth.inner.backend().listen_classic_l2cap(secure)
+    bluetooth.inner.backend().listen_classic_l2cap(secure).await
 }

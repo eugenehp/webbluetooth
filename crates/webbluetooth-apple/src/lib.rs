@@ -24,6 +24,9 @@
 //! * [`dispatch`] — the serial queue delegate callbacks are delivered on.
 //! * [`cb`] — typed accessors for `CBCentralManager` and friends.
 //! * [`delegate`] — the synthesised delegate class and its [`delegate::Event`]s.
+//! * `classic` and `rfcomm` — Bluetooth Classic devices and byte streams over
+//!   IOBluetooth, a separate framework from everything above. macOS only,
+//!   behind `apple-classic` and `rfcomm`.
 //! * [`peripheral`] — the mirror image: `CBPeripheralManager`, its own
 //!   synthesised delegate, and the mutable attribute types a GATT server
 //!   publishes.
@@ -55,6 +58,10 @@ pub mod backend;
 pub mod peripheral_backend;
 
 pub mod cb;
+/// Bluetooth Classic devices through IOBluetooth. **macOS only**, behind
+/// `apple-classic`.
+#[cfg(all(target_os = "macos", feature = "apple-classic"))]
+pub mod classic;
 pub mod delegate;
 pub mod dispatch;
 pub mod l2cap;
@@ -62,6 +69,9 @@ pub mod objc;
 /// The peripheral role. **macOS and iOS only** — see `build.rs`.
 #[cfg(peripheral_role)]
 pub mod peripheral;
+/// RFCOMM over IOBluetooth. **macOS only**, behind `rfcomm`.
+#[cfg(all(target_os = "macos", feature = "rfcomm"))]
+pub mod rfcomm;
 
 use std::sync::Arc;
 

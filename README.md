@@ -43,7 +43,7 @@ is? Turn on the `uuid` feature and pass them straight to `get_primary_service`
 and the rest:
 
 ```toml
-webbluetooth = { version = "0.0.2", features = ["uuid"] }
+webbluetooth = { version = "0.0.4", features = ["uuid"] }
 ```
 
 ## Start here
@@ -797,22 +797,26 @@ import from `webbluetooth::public`:
 
 ```toml
 [dependencies]
-webbluetooth = { version = "0.0.2", features = ["public"] }
+webbluetooth = { version = "0.0.4", features = ["public"] }
 ```
 
 Native extensions are opt-in. The `classic` feature enables Bluetooth Classic
 capability reporting, while the separate `rfcomm` and `classic-l2cap` features
-imply `classic` and provide Linux RFCOMM and Classic L2CAP byte streams.
+imply `classic` and provide RFCOMM and Classic L2CAP byte streams — RFCOMM on
+Linux, Android, Windows and macOS.
 These transports are independent of BLE L2CAP and are not part of
 `webbluetooth::public`.
 
-Apple Classic is isolated behind the separate `apple-classic` feature. It is a
-macOS-only backend boundary for a future IOBluetooth implementation and is not
-enabled by the general `classic` feature.
+Apple Classic is isolated behind the separate `apple-classic` feature, which
+is macOS-only and not enabled by the general `classic` feature: it links
+IOBluetooth, a different framework from CoreBluetooth. `rfcomm` turns it on,
+since RFCOMM on a Mac is IOBluetooth's: by address through
+`Bluetooth::open_rfcomm_channel()`, or for a dual-mode device already held as a
+`BluetoothDevice`, by name through `BluetoothDevice::open_rfcomm_channel()`.
 
 ```toml
 [dependencies]
-webbluetooth = { version = "0.0.2", features = ["public", "rfcomm"] }
+webbluetooth = { version = "0.0.4", features = ["public", "rfcomm"] }
 ```
 
 `BluetoothDevice::mtu()` reports the negotiated ATT MTU. Where the platform

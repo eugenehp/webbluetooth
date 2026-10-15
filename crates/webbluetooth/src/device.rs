@@ -372,7 +372,10 @@ impl BluetoothDevice {
         let address = self.address().ok_or_else(|| {
             crate::Error::NotSupported("RFCOMM requires a platform Bluetooth address".into())
         })?;
-        let records = self.inner.backend().query_sdp(&address, service).await?;
+        // A blocking SDP exchange over its own L2CAP socket; BlueZ's backend
+        // has no SDP call to route it through.
+        let records =
+            webbluetooth_linux::sdp::query(&address, service).map_err(crate::Error::Network)?;
         let channel = records
             .iter()
             .find_map(webbluetooth_core::SdpServiceRecord::rfcomm_channel)
@@ -514,7 +517,10 @@ impl BluetoothDevice {
         let address = self.address().ok_or_else(|| {
             crate::Error::NotSupported("Classic L2CAP requires a Bluetooth address".into())
         })?;
-        let records = self.inner.backend().query_sdp(&address, service).await?;
+        // A blocking SDP exchange over its own L2CAP socket; BlueZ's backend
+        // has no SDP call to route it through.
+        let records =
+            webbluetooth_linux::sdp::query(&address, service).map_err(crate::Error::Network)?;
         let psm = records
             .iter()
             .find_map(webbluetooth_core::SdpServiceRecord::l2cap_psm)
@@ -533,6 +539,31 @@ impl BluetoothDevice {
             crate::Error::NotSupported("this profile has no RFCOMM service UUID".into())
         })?;
         self.open_rfcomm_service(uuid.as_str()).await
+    }
+
+    /// Open an RFCOMM stream on a Bluetooth Classic server channel, on macOS.
+    ///
+    /// For a dual-mode device: one reached over LE through CoreBluetooth that
+    /// also serves RFCOMM over Classic. CoreBluetooth hides the address and
+    /// IOBluetooth, which owns Classic, has never heard of this device's
+    /// identifier — so the two are matched by **name**, against the devices
+    /// paired with this Mac. That is a heuristic and it is the only bridge
+    /// there is: two paired devices with one name are indistinguishable here.
+    /// With an address in hand, use [`crate::Bluetooth::open_rfcomm_channel`]
+    /// instead, which has no such ambiguity.
+    ///
+    /// Many dual-mode devices refuse the Classic link while the LE one is up;
+    /// [`RemoteGattServer::disconnect_and_wait`] is for that.
+    ///
+    /// [`RemoteGattServer::disconnect_and_wait`]: crate::RemoteGattServer::disconnect_and_wait
+    #[cfg(all(feature = "rfcomm", target_os = "macos"))]
+    pub async fn open_rfcomm_channel(&self, channel: u8) -> Result<crate::RfcommChannel> {
+        let name = self.name().ok_or_else(|| {
+            crate::Error::NotSupported(
+                "this device has no name to find its Bluetooth Classic side by".into(),
+            )
+        })?;
+        crate::rfcomm::open_macos_name(&name, channel).await
     }
 
     /// Open a Windows RFCOMM server channel through Winsock `AF_BTH`.
