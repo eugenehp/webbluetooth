@@ -27,32 +27,13 @@ fn main() {
 }
 
 /// IOBluetooth delivers every RFCOMM event — the open completing, each chunk of
-/// data, the peer closing — on the main thread's run loop. So the work runs on
-/// another thread and the main thread keeps that run loop turning until it is
-/// done. An app gets this from `NSApplication`; a command-line program has to
-/// do it itself, and without it the open fails and says so.
+/// data, the peer closing — on the main thread's run loop, so `main` hands the
+/// work to [`webbluetooth::run_with_main_run_loop`], which runs it on another
+/// thread and keeps the main thread's run loop turning until it is done. An app
+/// gets this from `NSApplication`; a command-line program has to do it itself.
 #[cfg(all(feature = "rfcomm", target_os = "macos"))]
 fn main() -> webbluetooth::Result<()> {
-    use std::sync::mpsc;
-    use std::time::Duration;
-
-    unsafe extern "C" {
-        fn CFRunLoopRunInMode(mode: *const std::ffi::c_void, seconds: f64, ret: bool) -> i32;
-        static kCFRunLoopDefaultMode: *const std::ffi::c_void;
-    }
-
-    let (done_tx, done) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = done_tx.send(futures_executor::block_on(run()));
-    });
-    loop {
-        match done.recv_timeout(Duration::ZERO) {
-            Ok(result) => return result,
-            Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-        }
-        unsafe { CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.1, false) };
-    }
+    webbluetooth::run_with_main_run_loop(|| futures_executor::block_on(run()))
 }
 
 #[cfg(all(feature = "rfcomm", target_os = "macos"))]
@@ -61,7 +42,7 @@ async fn run() -> webbluetooth::Result<()> {
     use webbluetooth::Bluetooth;
 
     let bluetooth = Bluetooth::shared();
-    let paired = bluetooth.paired_classic_devices().await?;
+    let paired = bluetooth.paired_devices().await?;
 
     let mut args = std::env::args().skip(1);
     let Some(wanted) = args.next() else {

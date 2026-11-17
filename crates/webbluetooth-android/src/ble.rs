@@ -1216,8 +1216,9 @@ pub fn start_advertising(
     include_name: bool,
     service_uuids: &[String],
     connectable: bool,
+    mode: i32,
 ) -> Result<()> {
-    let settings = build_advertise_settings(env, connectable)?;
+    let settings = build_advertise_settings(env, connectable, mode)?;
     let data = build_advertise_data(env, include_name, service_uuids)?;
     call_void(
         env,
@@ -1246,7 +1247,18 @@ pub fn stop_advertising(env: Env, advertiser: JObject, callback: JObject) -> Res
     )
 }
 
-fn build_advertise_settings(env: Env, connectable: bool) -> Result<JObject> {
+/// `AdvertiseSettings` mode for a preferred maximum interval: low latency
+/// (~100 ms), balanced (~250 ms) or low power (~1 s).
+pub fn advertise_mode(max_interval: Option<std::time::Duration>) -> i32 {
+    match max_interval.map(|d| d.as_millis()) {
+        None => 2,
+        Some(ms) if ms <= 175 => 2,
+        Some(ms) if ms <= 500 => 1,
+        Some(_) => 0,
+    }
+}
+
+fn build_advertise_settings(env: Env, connectable: bool, mode: i32) -> Result<JObject> {
     let class = env
         .find_class("android/bluetooth/le/AdvertiseSettings$Builder")
         .ok_or_else(|| Error::MissingClass("AdvertiseSettings.Builder".into()))?;
@@ -1255,13 +1267,14 @@ fn build_advertise_settings(env: Env, connectable: bool) -> Result<JObject> {
         .ok_or_else(|| missing("AdvertiseSettings.Builder.<init>"))?;
     let builder = env.new_object(class, ctor, &[]);
 
-    // ADVERTISE_MODE_LOW_LATENCY = 2: a peripheral is meant to be found.
+    // ADVERTISE_MODE_LOW_LATENCY = 2 by default: a peripheral is meant to be
+    // found. See `advertise_mode`.
     call_object(
         env,
         builder,
         "setAdvertiseMode",
         "(I)Landroid/bluetooth/le/AdvertiseSettings$Builder;",
-        &[JValue::int(2)],
+        &[JValue::int(mode)],
     )?;
     call_object(
         env,

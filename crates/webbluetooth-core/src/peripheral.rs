@@ -370,7 +370,15 @@ pub struct Advertising {
     pub local_name: Option<String>,
     /// Service UUIDs to advertise, which is what a central filters on.
     pub services: Vec<BluetoothUuid>,
+    /// The preferred range between advertising events; `None` leaves it to the
+    /// platform. See [`Advertising::interval`].
+    pub interval: Option<(std::time::Duration, std::time::Duration)>,
 }
+
+/// The shortest advertising interval the Core Specification allows (20 ms).
+pub const MIN_ADVERTISING_INTERVAL: std::time::Duration = std::time::Duration::from_millis(20);
+/// The longest advertising interval the Core Specification allows (10.24 s).
+pub const MAX_ADVERTISING_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10_240);
 
 impl Advertising {
     /// Advertise nothing in particular. Add a name or a service.
@@ -388,5 +396,54 @@ impl Advertising {
     pub fn service(mut self, uuid: impl IntoUuid) -> Result<Self> {
         self.services.push(uuid.into_uuid()?);
         Ok(self)
+    }
+
+    /// Prefer advertising every `min` to `max`: shorter is found sooner, at
+    /// the cost of power and airtime. Each scan window a central opens only
+    /// catches the events that fall inside it, so at BlueZ's default of about
+    /// 1.28 s a scanner — especially one next to a radio shared with Wi-Fi,
+    /// which drops some events — can miss a device for several windows in a
+    /// row.
+    ///
+    /// A preference, honoured where the platform exposes one:
+    ///
+    /// - **Linux**: BlueZ's `MinInterval` / `MaxInterval`, applied as given by
+    ///   BlueZ 5.82 (checked with `btmon`). Older releases treated them as
+    ///   experimental and ignore them unless `bluetoothd` runs with
+    ///   `Experimental = true` in `/etc/bluetooth/main.conf` (or `-E`). The
+    ///   system-wide default is `[LE] MinAdvertisementInterval` /
+    ///   `MaxAdvertisementInterval` in the same file.
+    /// - **Android**: the closest `AdvertiseSettings` mode — low latency
+    ///   (~100 ms) up to 175 ms, balanced (~250 ms) up to 500 ms, low power
+    ///   (~1 s) beyond. Without a preference Android uses low latency.
+    /// - **Apple** and **Windows** expose no interval; CoreBluetooth advertises
+    ///   quickly while the app is in the foreground.
+    ///
+    /// Fails if either bound is outside 20 ms–10.24 s or `min > max`.
+    pub fn interval(mut self, min: std::time::Duration, max: std::time::Duration) -> Result<Self> {
+        let range = MIN_ADVERTISING_INTERVAL..=MAX_ADVERTISING_INTERVAL;
+        if !range.contains(&min) || !range.contains(&max) || min > max {
+            return Err(Error::InvalidModification(format!(
+                "advertising interval {min:?}..{max:?} must be within 20 ms..10.24 s, min first"
+            )));
+        }
+        self.interval = Some((min, max));
+        Ok(self)
+    }
+}
+
+#[cfg(test)]
+mod advertising_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn intervals_are_validated() {
+        let ms = Duration::from_millis;
+        assert_eq!(Advertising::new().interval(ms(100), ms(150)).unwrap().interval, Some((ms(100), ms(150))));
+        assert!(Advertising::new().interval(ms(10), ms(150)).is_err(), "below 20 ms");
+        assert!(Advertising::new().interval(ms(100), ms(20_000)).is_err(), "above 10.24 s");
+        assert!(Advertising::new().interval(ms(200), ms(100)).is_err(), "min after max");
+        assert_eq!(Advertising::new().interval, None, "the platform decides by default");
     }
 }

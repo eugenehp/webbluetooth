@@ -97,6 +97,16 @@ impl RemoteCentral {
         &self.id
     }
 
+    /// Whether the platform actually identified this central.
+    ///
+    /// When it did not, [`id`](Self::id) is a placeholder that unrelated centrals share, so
+    /// never use it to tell centrals apart — for example, to bind an authenticated session to
+    /// the central that opened it. Check this first and treat an unidentified central as
+    /// untrusted.
+    pub fn is_identified(&self) -> bool {
+        !self.id.is_empty()
+    }
+
     /// The most bytes one notification to this central can carry.
     pub fn max_notification_length(&self) -> usize {
         self.client

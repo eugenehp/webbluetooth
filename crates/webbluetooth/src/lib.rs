@@ -168,6 +168,10 @@ use webbluetooth_windows::backend;
 mod device;
 mod gatt;
 mod session;
+#[cfg(not(target_arch = "wasm32"))]
+mod run_loop;
+#[cfg(not(target_arch = "wasm32"))]
+pub use run_loop::run_with_main_run_loop;
 
 use std::sync::Arc;
 
@@ -197,7 +201,7 @@ pub use webbluetooth_core::sdp::{SdpDataElement, SdpError, SdpServiceRecord};
 #[cfg(feature = "raw-acl")]
 pub use webbluetooth_core::AclPacket;
 #[cfg(any(
-    all(feature = "classic", target_os = "windows"),
+    all(feature = "classic", any(target_os = "windows", target_os = "android", all(target_os = "linux", not(feature = "linux-hci")))),
     all(feature = "apple-classic", target_os = "macos")
 ))]
 pub use webbluetooth_core::ClassicDevice;
@@ -524,6 +528,54 @@ impl Bluetooth {
     #[cfg(all(feature = "rfcomm", target_os = "macos"))]
     pub async fn open_rfcomm_channel(&self, address: &str, channel: u8) -> Result<RfcommChannel> {
         rfcomm::open_macos_address(address, channel).await
+    }
+
+    /// Open an RFCOMM stream to a Bluetooth address (`"AA:BB:CC:DD:EE:FF"`) on a server
+    /// channel without a [`BluetoothDevice`], for a Classic-only peer that never appears in
+    /// an LE scan. The socket connects directly; BlueZ handles any pairing.
+    #[cfg(all(feature = "rfcomm", target_os = "linux"))]
+    pub async fn open_rfcomm_channel(&self, address: &str, channel: u8) -> Result<RfcommChannel> {
+        rfcomm::open(address, channel)
+    }
+
+    /// Open an RFCOMM stream to a Bluetooth address on a server channel through Winsock
+    /// `AF_BTH`, without a [`BluetoothDevice`].
+    #[cfg(all(feature = "rfcomm", target_os = "windows"))]
+    pub async fn open_rfcomm_channel(&self, address: &str, channel: u8) -> Result<RfcommChannel> {
+        rfcomm::open_windows(address, channel)
+    }
+
+    /// The paired (bonded) Bluetooth Classic devices, the same way on every platform that has a list: IOBluetooth's
+    /// paired devices on macOS (needs `apple-classic`, which `rfcomm` turns on), BlueZ's on Linux, Android's bonded
+    /// devices, and the remembered ones of the Windows device list. One entry per address. Where a platform reports
+    /// only addresses (Linux, Android) the rest of each entry is unknown: no name, not connected.
+    ///
+    /// The addresses are what [`Self::open_rfcomm_channel`] takes.
+    #[cfg(any(
+        all(feature = "apple-classic", target_os = "macos"),
+        all(feature = "classic", any(target_os = "windows", target_os = "android", all(target_os = "linux", not(feature = "linux-hci"))))
+    ))]
+    pub async fn paired_devices(&self) -> Result<Vec<ClassicDevice>> {
+        #[cfg(target_os = "macos")]
+        {
+            self.paired_classic_devices().await
+        }
+        #[cfg(target_os = "windows")]
+        {
+            Ok(self.classic_devices().await?.into_iter().filter(|d| d.bonded).collect())
+        }
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            let mut out: Vec<ClassicDevice> = Vec::new();
+            for a in self.bonded_classic_devices().await? {
+                let address = a.parse().ok();
+                if address.is_some() && out.iter().any(|d| d.address == address) {
+                    continue;
+                }
+                out.push(ClassicDevice { address, name: None, class_of_device: None, bonded: true, authenticated: false, connected: false });
+            }
+            Ok(out)
+        }
     }
 
     /// Discover Bluetooth Classic devices through the Windows native API.
@@ -1274,6 +1326,13 @@ impl LeScanOptions {
 
     /// Report every advertisement from every device —
     /// `acceptAllAdvertisements`.
+    ///
+    /// The reports carry no service UUIDs or service data: an event only tells
+    /// a caller about the services its grant covers, and this grant names none
+    /// (the spec's *fire an advertisementreceived event*). A device that does
+    /// advertise a service still shows up, with an empty
+    /// [`service_uuids`](crate::Advertisement::service_uuids). To see a service,
+    /// scan with a [`filter`](Self::filter) on it instead.
     pub fn accept_all_advertisements() -> Self {
         Self {
             accept_all_advertisements: true,

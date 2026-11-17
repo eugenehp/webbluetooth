@@ -47,6 +47,14 @@ pub type Handle = Retained;
 /// How long to wait for `centralManagerDidUpdateState:` before giving up.
 const STATE_SETTLE_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// How long a write-without-response waits to be told there is room before it
+/// goes ahead anyway. In a transfer the callback comes within a connection
+/// interval or two (some 20 ms); this is ten times that, so it is only reached
+/// when the callback has been lost.
+const READY_TO_WRITE_PATIENCE: Duration = Duration::from_millis(250);
+/// How often it looks at `canSendWriteWithoutResponse` again meanwhile.
+const READY_TO_WRITE_POLL: Duration = Duration::from_millis(25);
+
 /// A pending-reply queue keyed by `(peripheral, attribute)`.
 type Key = (usize, usize);
 
@@ -1180,8 +1188,39 @@ impl Inner {
                         .ready_to_write
                         .cancel((key, key));
                 } else {
-                    rx.await
-                        .map_err(|_| Error::Aborted("the write was cancelled".into()))??;
+                    // Not for ever, though. Every so often — a few times in a
+                    // thousand writes, measured against a BlueZ peripheral —
+                    // CoreBluetooth neither delivers the callback nor turns the
+                    // property true, and stays that way until the next write is
+                    // attempted. Waiting on it alone hangs a bulk transfer at a
+                    // random packet. So the wait is bounded: the property is
+                    // looked at again while waiting, and when the patience runs
+                    // out the write goes ahead — which is what un-sticks it.
+                    let mut rx = rx;
+                    let began = std::time::Instant::now();
+                    loop {
+                        match timer::timeout(READY_TO_WRITE_POLL, &mut rx).await {
+                            Ok(told) => {
+                                told.map_err(|_| {
+                                    Error::Aborted("the write was cancelled".into())
+                                })??;
+                                break;
+                            }
+                            Err(()) => {
+                                let ready = unsafe {
+                                    cb::peripheral_can_write_without_response(peripheral.as_ptr())
+                                };
+                                if ready || began.elapsed() >= READY_TO_WRITE_PATIENCE {
+                                    self.pending
+                                        .lock()
+                                        .unwrap()
+                                        .ready_to_write
+                                        .cancel((key, key));
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 unsafe {

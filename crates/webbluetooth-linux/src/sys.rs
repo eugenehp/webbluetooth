@@ -14,6 +14,11 @@ pub const BTPROTO_L2CAP: c_int = 0;
 pub const BTPROTO_RFCOMM: c_int = 3;
 pub const SOL_BLUETOOTH: c_int = 274;
 pub const BT_SECURITY: c_int = 4;
+/// The largest SDU an L2CAP socket may write (`u16`): the peer's MTU on an LE channel.
+pub const BT_SNDMTU: c_int = 12;
+/// The largest SDU it can receive (`u16`).
+pub const BT_RCVMTU: c_int = 13;
+pub const EMSGSIZE: i32 = 90;
 /// Only meaningful on the SDP channel; see [`set_classic_security`].
 #[allow(dead_code)]
 pub const BT_SECURITY_SDP: u8 = 0;
@@ -58,7 +63,26 @@ unsafe extern "C" {
         value: *const core::ffi::c_void,
         length: u32,
     ) -> c_int;
+    /// `getsockopt`, for the same reason as [`bluetooth_setsockopt`].
+    #[link_name = "getsockopt"]
+    pub fn bluetooth_getsockopt(
+        fd: c_int,
+        level: c_int,
+        option: c_int,
+        value: *mut core::ffi::c_void,
+        length: *mut u32,
+    ) -> c_int;
     fn __errno_location() -> *mut c_int;
+}
+
+/// A `u16` Bluetooth socket option (`BT_SNDMTU`, `BT_RCVMTU`); `None` if the kernel won't say.
+pub fn bluetooth_u16_option(fd: c_int, option: c_int) -> Option<u16> {
+    let mut value = 0u16;
+    let mut length = std::mem::size_of::<u16>() as u32;
+    let rc = unsafe {
+        bluetooth_getsockopt(fd, SOL_BLUETOOTH, option, (&raw mut value).cast(), &mut length)
+    };
+    (rc == 0 && value > 0).then_some(value)
 }
 
 /// `read(2)` into a byte buffer.
@@ -75,6 +99,28 @@ pub unsafe fn read(fd: c_int, buf: *mut u8, count: usize) -> isize {
 /// `buf` must be valid for `count` bytes of reads.
 pub unsafe fn write(fd: c_int, buf: *const u8, count: usize) -> isize {
     unsafe { libc_write(fd, buf.cast(), count) }
+}
+
+/// The security an LE L2CAP socket demands of its link: `BT_SECURITY_MEDIUM`
+/// (an encrypted link: the central pairs or uses its bond before the channel
+/// opens) or `BT_SECURITY_LOW` (none, the kernel's default).
+pub fn set_le_security(fd: c_int, encryption_required: bool) -> Result<(), i32> {
+    let level = if encryption_required { BT_SECURITY_MEDIUM } else { BT_SECURITY_LOW };
+    let value = [level, 0];
+    let result = unsafe {
+        bluetooth_setsockopt(
+            fd,
+            SOL_BLUETOOTH,
+            BT_SECURITY,
+            value.as_ptr().cast(),
+            value.len() as u32,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(errno())
+    }
 }
 
 /// Configure the Linux Bluetooth security level for a Classic socket.

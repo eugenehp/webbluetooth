@@ -35,7 +35,7 @@ while let Some(value) = beats.next().await {
 
 ```toml
 [dependencies]
-webbluetooth = "0.0.4"
+webbluetooth = "0.0.5"
 ```
 
 That is the whole dependency list for the example above. `webbluetooth::prelude`
@@ -100,7 +100,7 @@ For example:
 
 ```toml
 [dependencies]
-webbluetooth = { version = "0.0.4", features = ["public", "rfcomm"] }
+webbluetooth = { version = "0.0.5", features = ["public", "rfcomm"] }
 ```
 
 `BluetoothDevice::mtu()` reports the negotiated ATT MTU. On Android,

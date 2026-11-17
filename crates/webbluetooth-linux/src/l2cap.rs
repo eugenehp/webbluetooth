@@ -16,10 +16,17 @@
 //! the bytes `FF EE DD CC BB AA`. And an LE channel must name the peer's
 //! address *type* — connecting to a random address as though it were public
 //! simply times out.
+//!
+//! And the socket is `SOCK_SEQPACKET`: **each write is one SDU**, which may not
+//! exceed the peer's MTU (`BT_SNDMTU`; `EMSGSIZE` otherwise), and each read
+//! returns one SDU, cut short if the buffer is smaller. So writes are split at
+//! the send MTU and the reader's buffer is at least the receive MTU. The
+//! portable channel is a byte stream; SDU boundaries mean nothing to callers.
 
 use crate::sys::{
-    address_type, bind_le_source, close, connect, errno, parse_address, read, shutdown, socket,
-    write, SockAddrL2, AF_BLUETOOTH, BTPROTO_L2CAP, EINTR, SHUT_RDWR, SOCK_SEQPACKET,
+    address_type, bind_le_source, bluetooth_u16_option, close, connect, errno, parse_address,
+    read, shutdown, socket, write, SockAddrL2, AF_BLUETOOTH, BTPROTO_L2CAP, BT_RCVMTU, BT_SNDMTU,
+    EINTR, EMSGSIZE, SHUT_RDWR, SOCK_SEQPACKET,
 };
 use futures_channel::mpsc;
 use futures_core::Stream;
@@ -48,6 +55,9 @@ pub struct Channel {
     fd: Arc<Socket>,
     /// Serialises writes; a partial write must not interleave with another.
     writing: Mutex<VecDeque<u8>>,
+    /// The largest SDU a write may carry (`BT_SNDMTU`), lowered if the kernel
+    /// refuses one anyway.
+    send_mtu: std::sync::atomic::AtomicUsize,
     /// Shared with the reader thread, which records why the channel ended
     /// before telling anyone — so `closed()` agrees with `on_close()`.
     closed: Arc<Mutex<Option<Closed>>>,
@@ -102,6 +112,7 @@ impl Channel {
         Ok(Self {
             psm,
             peer: address.to_owned(),
+            send_mtu: send_mtu(fd),
             fd: socket,
             writing: Mutex::new(VecDeque::new()),
             closed,
@@ -118,6 +129,7 @@ impl Channel {
         Self {
             psm,
             peer,
+            send_mtu: send_mtu(fd),
             fd: socket,
             writing: Mutex::new(VecDeque::new()),
             closed,
@@ -141,13 +153,21 @@ impl Channel {
         let _order = self.writing.lock().unwrap();
         let mut sent = 0;
         while sent < bytes.len() {
-            let n = unsafe { write(self.fd.0, bytes[sent..].as_ptr(), bytes.len() - sent) };
+            let mtu = self.send_mtu.load(Ordering::Relaxed);
+            let len = (bytes.len() - sent).min(mtu);
+            let n = unsafe { write(self.fd.0, bytes[sent..].as_ptr(), len) };
             if n > 0 {
                 sent += n as usize;
                 continue;
             }
             // EINTR is not a failure; anything else is.
             if n < 0 && errno() == EINTR {
+                continue;
+            }
+            // An SDU over the peer's MTU, which the kernel did not report (or
+            // which changed): try smaller ones, down to the LE minimum.
+            if n < 0 && errno() == EMSGSIZE && mtu > LE_MIN_MTU {
+                self.send_mtu.store((mtu / 2).max(LE_MIN_MTU), Ordering::Relaxed);
                 continue;
             }
             let reason = Closed::Error(format!("L2CAP write failed (errno {})", errno()));
@@ -196,6 +216,16 @@ impl std::fmt::Debug for Channel {
     }
 }
 
+/// The smallest MTU an LE connection-oriented channel may have.
+const LE_MIN_MTU: usize = 23;
+
+/// What one write may carry: the kernel's `BT_SNDMTU`, or the LE minimum if it
+/// won't say (writes then grow no further, but never fail for size).
+fn send_mtu(fd: c_int) -> std::sync::atomic::AtomicUsize {
+    let mtu = bluetooth_u16_option(fd, BT_SNDMTU).map_or(LE_MIN_MTU, usize::from);
+    std::sync::atomic::AtomicUsize::new(mtu.max(LE_MIN_MTU))
+}
+
 fn spawn_reader(
     socket: Arc<Socket>,
     sink: Arc<dyn ChannelSink>,
@@ -206,7 +236,9 @@ fn spawn_reader(
     std::thread::Builder::new()
         .name(format!("webbluetooth-l2cap-{psm}"))
         .spawn(move || {
-            let mut buf = vec![0u8; 4096];
+            // One read is one SDU, truncated if the buffer is smaller.
+            let rcv = bluetooth_u16_option(socket.0, BT_RCVMTU).map_or(0, usize::from);
+            let mut buf = vec![0u8; rcv.max(4096)];
             let reason = loop {
                 if stopped.load(Ordering::Acquire) {
                     break Closed::Locally;
@@ -297,8 +329,14 @@ impl Drop for L2capListener {
     }
 }
 
-/// Bind and listen on an LE L2CAP PSM. Pass zero to let the kernel allocate it.
-pub fn listen(psm: Psm) -> webbluetooth_core::Result<(Psm, L2capListener)> {
+/// Bind and listen on an LE L2CAP PSM. Pass zero to let the kernel allocate it
+/// (from the dynamic range, 0x80–0xFF). With `encryption_required`, a channel
+/// only opens on an encrypted link; the security level is set on the listener
+/// and accepted sockets inherit it.
+pub fn listen(
+    psm: Psm,
+    encryption_required: bool,
+) -> webbluetooth_core::Result<(Psm, L2capListener)> {
     let fd = unsafe { socket(AF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_L2CAP) };
     if fd < 0 {
         return Err(webbluetooth_core::Error::Network(format!(
@@ -307,6 +345,11 @@ pub fn listen(psm: Psm) -> webbluetooth_core::Result<(Psm, L2capListener)> {
         )));
     }
     let socket = Arc::new(Socket(fd));
+    if let Err(code) = crate::sys::set_le_security(fd, encryption_required) {
+        return Err(webbluetooth_core::Error::Network(format!(
+            "could not set the LE L2CAP listener's security (errno {code})"
+        )));
+    }
     let address = SockAddrL2 {
         family: AF_BLUETOOTH as u16,
         psm: psm.to_le(),

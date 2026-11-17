@@ -43,7 +43,7 @@ is? Turn on the `uuid` feature and pass them straight to `get_primary_service`
 and the rest:
 
 ```toml
-webbluetooth = { version = "0.0.4", features = ["uuid"] }
+webbluetooth = { version = "0.0.5", features = ["uuid"] }
 ```
 
 ## Start here
@@ -789,6 +789,14 @@ Runtime-agnostic. Built on `futures-channel` / `futures-util`, no tokio
 dependency — works on any executor, including `futures_executor::block_on`.
 Timers run on one background thread with a deadline heap.
 
+### Depending on a checkout by path
+
+This repository pins its toolchain in `rust-toolchain.toml`. A crate that depends on a checkout by `path` and builds
+with a *different* toolchain can be caught by that pin: rustup picks the toolchain per directory, so the path crates
+may be compiled by the pinned one while the rest of the graph is compiled by yours, and the build stops at
+`found crate ... compiled by an incompatible version of rustc`. Name the toolchain for the whole build —
+`RUSTUP_TOOLCHAIN=stable cargo build` — or invoke cargo through rustup (`cargo +stable build`).
+
 ## API modes and transports
 
 The root API follows Web Bluetooth's LE/GATT model. Applications that need a
@@ -797,7 +805,7 @@ import from `webbluetooth::public`:
 
 ```toml
 [dependencies]
-webbluetooth = { version = "0.0.4", features = ["public"] }
+webbluetooth = { version = "0.0.5", features = ["public"] }
 ```
 
 Native extensions are opt-in. The `classic` feature enables Bluetooth Classic
@@ -816,7 +824,7 @@ since RFCOMM on a Mac is IOBluetooth's: by address through
 
 ```toml
 [dependencies]
-webbluetooth = { version = "0.0.4", features = ["public", "rfcomm"] }
+webbluetooth = { version = "0.0.5", features = ["public", "rfcomm"] }
 ```
 
 `BluetoothDevice::mtu()` reports the negotiated ATT MTU. Where the platform

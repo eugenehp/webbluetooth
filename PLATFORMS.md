@@ -906,10 +906,15 @@ MTU, so a `RemoteCentral` from a subscription stands for the subscription rather
 than identifying a peer — unlike a read or write, where the options dictionary
 does carry the device path.
 
-Two limits worth stating: a service cannot be withdrawn from a registered
-application, so `unpublish` re-registers without it; and `publish_l2cap_channel`
-returns `NotSupported`, because BlueZ has no D-Bus API for it — a peripheral
-would have to listen on an L2CAP socket itself.
+A service cannot be withdrawn from a registered application, so `unpublish`
+re-registers without it.
+
+**L2CAP channels are a socket of our own.** BlueZ has no D-Bus API for a
+peripheral's LE connection-oriented channels, so `publish_l2cap_channel` listens
+on an LE L2CAP socket (`SOCK_SEQPACKET`, PSM 0: the kernel picks one in
+0x80–0xFF), next to bluetoothd's GATT on the same link. `encryption_required`
+sets `BT_SECURITY_MEDIUM` on it. The PSM has to reach centrals some other way;
+the usual one is a readable characteristic.
 
 ### Choosing an adapter
 

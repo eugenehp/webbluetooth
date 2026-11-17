@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.0.5 — 2026-11-16
+
+### Fixed
+
+- Apple: a write without response could hang for ever. It waits for
+  `peripheralIsReadyToSendWriteWithoutResponse:` when `canSendWriteWithoutResponse` is false, and a
+  few times in a thousand writes CoreBluetooth neither delivers that callback nor turns the property
+  true until another write is attempted — so a bulk transfer stopped at a random packet (the third,
+  the eleventh). The wait is now bounded (250 ms, the property re-read every 25 ms), after which the
+  write goes ahead. Found sending a 1.7 MB file from macOS to a BlueZ peripheral; with the fix,
+  3,349 writes of 512 bytes in 162 s, none lost.
+- Linux LE L2CAP channels: `send` wrote everything in one `write`, and a `SOCK_SEQPACKET` L2CAP
+  socket takes one SDU per write, at most the peer's MTU, so any send longer than that failed with
+  `EMSGSIZE` (errno 90) and closed the channel. Writes are now split at `BT_SNDMTU` (halving on an
+  unexpected `EMSGSIZE`), and the reader's buffer is at least `BT_RCVMTU`, as a shorter read
+  truncates the SDU. Found streaming camera frames from a Raspberry Pi to macOS (MTU 1498).
+- Linux `Peripheral::publish_l2cap_channel` ignored `encryption_required`; it now sets
+  `BT_SECURITY_MEDIUM` on the listener (accepted channels inherit it). Its docs and `PLATFORMS.md`
+  said it returned `NotSupported`; it listens on an LE L2CAP socket of its own.
+- Linux peripheral: a characteristic published with a fixed `Characteristic::value` is now served by the
+  backend, honouring `offset`, as on macOS. Before, every read was forwarded to the application as a
+  `Request::Read`, so a server that (per the documented contract) only answered its dynamic
+  characteristics refused reads of the fixed ones on Linux alone.
+- macOS: `paired_classic_devices` listed a device once per `IOBluetoothDevice` that IOBluetooth's `pairedDevices`
+  holds for it, which can be more than one; it now lists each address once (connected if any of them is).
+
+### Added
+
+- `Advertising::interval(min, max)`: a preferred advertising interval, validated against the Core
+  Specification's 20 ms–10.24 s. Linux passes it to BlueZ as `MinInterval`/`MaxInterval` (applied by BlueZ 5.82;
+  older releases only with experimental features, ignoring them otherwise); Android picks the closest
+  `AdvertiseSettings` mode; Apple and Windows expose no interval. BlueZ's default is about 1.28 s, slow
+  enough that a scanner can miss a Linux peripheral for several windows in a row.
+- `RemoteCentral::is_identified()` on every peripheral backend: whether the platform actually
+  identified the central. Without it, `id()` is a placeholder shared by unrelated centrals —
+  `"unknown"` on Linux when BlueZ names no device, `"subscribed"` for every Linux
+  `Subscribed`/`Unsubscribed` (BlueZ's `StartNotify`/`StopNotify` carry no device), empty
+  elsewhere — and a server that binds
+  state or authentication to `id()` (as a PIN session should) would let one central inherit
+  another's.
+- `Bluetooth::paired_devices()`: the paired Bluetooth Classic devices as `ClassicDevice`s on macOS, Linux, Windows and
+  Android alike, one entry per address — in place of reaching for `paired_classic_devices` (macOS),
+  `bonded_classic_devices` (Linux, Android; addresses only) or `classic_devices` (Windows; everything discovered)
+  behind a `cfg` per platform. `ClassicDevice` is now exported wherever the call exists.
+- `run_with_main_run_loop(work)`: runs `work` on its own thread while the calling (main) thread turns its
+  CoreFoundation run loop, which IOBluetooth needs for every RFCOMM event on macOS; elsewhere it just runs `work`.
+  The `rfcomm_macos` example uses it in place of its own loop.
+- `Bluetooth::open_rfcomm_channel(address, channel)` on Linux and Windows, as on macOS: an
+  RFCOMM stream by Bluetooth address without a `BluetoothDevice`, for Classic-only peers that
+  never appear in an LE scan (Linux and Windows already had it on `BluetoothDevice`, which
+  needs a device found by `requestDevice`).
+
+### Documentation
+
+- `LeScanOptions::accept_all_advertisements`: its reports carry no service UUIDs or service data, as the
+  spec's grant model requires (an accept-all grant names no services); scan with a filter to see a service.
+- README: depending on a checkout by path while building with another toolchain than the one `rust-toolchain.toml`
+  pins.
+
 ## 0.0.4 — 2026-10-15
 
 RFCOMM on every native platform, and the Linux half of it working for the first

@@ -135,20 +135,65 @@ pub fn paired_devices() -> webbluetooth_core::Result<Vec<ClassicDevice>> {
     let class = device_class().map_err(webbluetooth_core::Error::NotSupported)?;
     Ok(unsafe {
         let paired: Id = crate::msg_send![class, pairedDevices];
-        objc::array_map(paired, |device| ClassicDevice {
+        dedup_by_address(objc::array_map(paired, |device| ClassicDevice {
             address: device_address(device).and_then(|a| a.parse().ok()),
             name: device_name(device),
             class_of_device: None,
             bonded: true,
             authenticated: false,
             connected: crate::msg_send_t![bool; device, isConnected],
-        })
+        }))
     })
+}
+
+/// One entry per address, in first-seen order. IOBluetooth's `pairedDevices` can list a device more than once (one
+/// `IOBluetoothDevice` per link it has had); the duplicates are folded into the first entry, which keeps its name
+/// unless it had none and is connected if any of them is. Entries without an address are kept as they are.
+fn dedup_by_address(devices: Vec<ClassicDevice>) -> Vec<ClassicDevice> {
+    let mut out: Vec<ClassicDevice> = Vec::with_capacity(devices.len());
+    for d in devices {
+        match d.address.and_then(|a| out.iter().position(|o| o.address == Some(a))) {
+            Some(i) => {
+                let first = &mut out[i];
+                first.connected |= d.connected;
+                first.authenticated |= d.authenticated;
+                if first.name.is_none() {
+                    first.name = d.name;
+                }
+            }
+            None => out.push(d),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paired_devices_are_listed_once_per_address() {
+        let dev = |addr: Option<&str>, name: Option<&str>, connected: bool| ClassicDevice {
+            address: addr.map(|a| a.parse().unwrap()),
+            name: name.map(String::from),
+            class_of_device: None,
+            bonded: true,
+            authenticated: false,
+            connected,
+        };
+        let out = dedup_by_address(vec![
+            dev(Some("50:0B:91:A9:3B:7E"), Some("MW75 Neuro"), false),
+            dev(Some("84:7B:57:C5:51:42"), None, false),
+            dev(Some("50:0B:91:A9:3B:7E"), Some("MW75 Neuro"), true),
+            dev(Some("84:7B:57:C5:51:42"), Some("msi"), false),
+            dev(None, Some("no address"), false),
+            dev(None, Some("no address"), false),
+        ]);
+        assert_eq!(out.len(), 4);
+        assert_eq!((out[0].name.as_deref(), out[0].connected), (Some("MW75 Neuro"), true));
+        assert_eq!(out[1].name.as_deref(), Some("msi"));
+        assert!(out[2].address.is_none() && out[3].address.is_none());
+    }
 
     #[test]
     fn addresses_are_read_in_either_spelling() {

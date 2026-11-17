@@ -95,6 +95,9 @@ fn flags_for(properties: Properties) -> Vec<String> {
 pub struct RemoteCentral {
     id: String,
     mtu: usize,
+    /// Whether BlueZ named the device. `id` is `"unknown"` when a read or write carried no
+    /// device, and `"subscribed"` for (un)subscriptions, which never carry one.
+    identified: bool,
 }
 
 impl RemoteCentral {
@@ -103,6 +106,7 @@ impl RemoteCentral {
             m.get("device")
                 .and_then(|v| v.peel().as_str().map(str::to_owned))
         });
+        let identified = device.is_some();
         // `/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF` — the address is the tail.
         let id = device
             .as_deref()
@@ -115,11 +119,21 @@ impl RemoteCentral {
         let mtu = option_u64(options, "mtu")
             .map(|v| (v as usize).saturating_sub(3))
             .unwrap_or(fallback_mtu);
-        Self { id, mtu }
+        Self { id, mtu, identified }
     }
 
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// Whether the platform actually identified this central.
+    ///
+    /// When it did not, [`id`](Self::id) is a placeholder that unrelated centrals share, so
+    /// never use it to tell centrals apart — for example, to bind an authenticated session to
+    /// the central that opened it. Check this first and treat an unidentified central as
+    /// untrusted.
+    pub fn is_identified(&self) -> bool {
+        self.identified
     }
 
     /// The most bytes one notification to this central can carry.
@@ -299,6 +313,9 @@ struct CharacteristicState {
     /// The last value, which is what a `Value` property read returns and what
     /// a notification carries.
     value: Mutex<Vec<u8>>,
+    /// Published with a fixed value (`Characteristic::value`): reads are served
+    /// from `value` without a request to the application, as CoreBluetooth does.
+    fixed: bool,
     /// Centrals BlueZ has told us are subscribed.
     subscribers: Mutex<Vec<RemoteCentral>>,
     descriptors: Vec<DescriptorState>,
@@ -552,6 +569,14 @@ impl Application {
         let central = RemoteCentral::from_options(options, DEFAULT_NOTIFY_LEN);
         let offset = option_u64(options, "offset").unwrap_or(0) as usize;
 
+        // A fixed value is answered here, like a descriptor's: the documented
+        // contract of `Characteristic::value` is that no read request reaches
+        // the application, which CoreBluetooth already honours.
+        if characteristic.fixed {
+            let value = characteristic.value.lock().unwrap();
+            return Ok(vec![Value::bytes(value.get(offset..).unwrap_or_default())]);
+        }
+
         let (tx, rx) = channel();
         let request = Request::Read(ReadRequest {
             characteristic: characteristic.uuid,
@@ -640,6 +665,7 @@ impl Application {
         let central = RemoteCentral {
             id: "subscribed".to_string(),
             mtu: DEFAULT_NOTIFY_LEN,
+            identified: false,
         };
         {
             let mut subscribers = characteristic.subscribers.lock().unwrap();
@@ -784,6 +810,7 @@ impl Peripheral {
                 path,
                 flags: flags_for(Properties(definition.properties)),
                 value: Mutex::new(definition.value.clone().unwrap_or_default()),
+                fixed: definition.value.is_some(),
                 subscribers: Mutex::new(Vec::new()),
                 descriptors,
             }));
@@ -874,6 +901,16 @@ impl Peripheral {
                 Value::Variant(Box::new(Value::Str(name.clone()))),
             ));
         }
+        // Milliseconds. BlueZ 5.82 applies these as given; older releases only
+        // with experimental features, ignoring them otherwise.
+        if let Some((min, max)) = advertising.interval {
+            for (key, d) in [("MinInterval", min), ("MaxInterval", max)] {
+                entries.push((
+                    Value::Str(key.into()),
+                    Value::Variant(Box::new(Value::Uint32(d.as_millis() as u32))),
+                ));
+            }
+        }
         *self.inner.advertisement.lock().unwrap() = entries;
 
         bluez.export(
@@ -916,12 +953,19 @@ impl Peripheral {
         self.inner.advertising.load(Ordering::SeqCst)
     }
 
-    /// Not available through BlueZ's GATT manager.
+    /// Listen for LE connection-oriented channels on a PSM the kernel picks.
+    ///
+    /// BlueZ has no D-Bus API for this, so it is an L2CAP socket of our own
+    /// (`AF_BLUETOOTH`/`BTPROTO_L2CAP`, `SOCK_SEQPACKET`, LE public address),
+    /// which the kernel serves alongside bluetoothd's GATT. Each central that
+    /// opens the PSM arrives as [`Request::ChannelOpened`]. Tell centrals the
+    /// PSM yourself, typically in a readable characteristic (Apple's
+    /// convention, `ABDD3056-28FA-441D-A470-55A75A52553A`).
     pub async fn publish_l2cap_channel(
         &self,
-        _encryption_required: bool,
+        encryption_required: bool,
     ) -> Result<webbluetooth_core::Psm> {
-        let (psm, listener) = crate::l2cap::listen(0)?;
+        let (psm, listener) = crate::l2cap::listen(0, encryption_required)?;
         let sender = self.inner.to_app.clone();
         let handle = listener.spawn(move |channel| {
             let request = match channel {
